@@ -128,3 +128,6 @@ launch.json
 *doc.zip
 *debug*.py
 sg_execution_times.rst
+
+# imgui 
+imgui.ini
