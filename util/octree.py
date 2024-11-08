@@ -13,6 +13,7 @@ class Octree:
 
         self.node_count = [0] # nodes per level
         self.leaf_count = 0
+        self.non_empty_leaf_count = 0
         self.knot_count = 0
         self.point_count = len(points)
 
@@ -46,18 +47,23 @@ class Octree:
     def to_list(self):
         timer = Timer("Octree to list")
 
+        # index for the metadata of knots
         self.hierarchy_id = 0
+        # index for the hierarchy
+        self.hierarchy_index = 0
+        # index into the points
         self.point_id = 1
-        self.hierarchy_pointer = 0
         
-        self.hierarchy = np.zeros(self.knot_count * 8, dtype=np.uint32)
+        self.hierarchy = np.zeros((self.knot_count, 8), dtype=np.uint32)
         self.bounds = np.zeros((self.knot_count + self.leaf_count, 6))
-        self.metadata = np.zeros((self.knot_count + self.leaf_count, 5), dtype=np.uint32)
+        self.metadata = np.zeros((self.knot_count + self.leaf_count, 4), dtype=np.uint32)
         self.points = np.zeros((self.point_count, 3))
         self.colors = np.zeros((self.point_count, 4))
         self.root.to_list()
         
         timer.toc()
+
+        # hierarchy numpy array with row for each knot, indicating the children in self.metadata
         
         return self.hierarchy, self.bounds, self.metadata, self.points, self.colors
 
@@ -91,6 +97,8 @@ class Leaf(Node):
         self.points = points
         self.colors = colors
         octree.leaf_count += 1
+        if self.points is not None and len(self) > 0:
+            octree.non_empty_leaf_count += 1
 
     def __len__(self):
         if self.points is None:
@@ -104,6 +112,7 @@ class Leaf(Node):
     def to_list(self):
 
         # if leaf is not empty
+        # todo should empty nodes be used as well?
         if self.points is not None and len(self) > 0:
 
             # used in the parent knot
@@ -118,10 +127,11 @@ class Leaf(Node):
             if self.colors is not None:
                 self.octree.colors[self.point_ref:self.point_ref+len(self), :] = self.colors
 
-            # isleaf as own list?                                   0           1               2                       3              4
-            self.octree.metadata[self.hierarchy_ref, :] = np.r_[len(self), self.isleaf, self.point_ref+len(self), self.point_ref, self.level]
+            # isleaf as own list?                                   0      1        2             3
+            self.octree.metadata[self.hierarchy_ref, :] = np.r_[len(self), 0, self.point_ref, self.level]
             self.octree.bounds[self.hierarchy_ref, :] = self.bounds.flatten()
         
+    # deprecated
     def write(self, hierarchyfile, metadatafile, pointfile, as_bytes=False):
         # used in the parent knot
         self.hierarchy_ref = self.octree.hierarchy_id
@@ -270,21 +280,32 @@ class Knot(Node):
         self.hierarchy_ref = self.octree.hierarchy_id
         self.octree.hierarchy_id += 1
 
+        self.hierarchy = np.zeros(8, dtype=np.uint32)
+        # point range of the children
         point_range_from = []
         point_range_to = []
         for i, child in enumerate(self.children):
+            # thus empty leafs have index 0 in the hierarchy
             if len(child) > 0:
                 point_range_from.append(child.point_ref)
                 point_range_to.append(child.point_ref + len(child))
-                self.octree.hierarchy[self.octree.hierarchy_pointer + i] = child.hierarchy_ref
-
+                # popullate the hierarchy with the hierarchy_ref of the children
+                self.hierarchy[i] = child.hierarchy_ref
+        
         self.point_ref = np.min(np.r_[point_range_from])
 
-        self.octree.hierarchy_pointer += 8
+        # len of the knot = total number of points
+        # is leaf
+        # hierarchy_index to access hierarchy list and to indicate if it is a leaf (hierarchy_index == 0) (also true if root)
+        # point ref : start of the points in thís node 
+        # level in the octree
 
         # isleaf as own list?
-        self.octree.metadata[self.hierarchy_ref, :] = np.r_[len(self), self.isleaf, self.hierarchy_ref, self.point_ref, self.level]
+        self.octree.metadata[self.hierarchy_ref, :] = np.r_[len(self), self.octree.hierarchy_index, self.point_ref, self.level]
         self.octree.bounds[self.hierarchy_ref, :] = self.bounds.flatten()
+        self.octree.hierarchy[self.octree.hierarchy_index, :] = self.hierarchy
+
+        self.octree.hierarchy_index += 1
 
 
     def write(self, hierarchyfile, metadatafile, pointfile, as_bytes=False):

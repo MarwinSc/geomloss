@@ -375,7 +375,7 @@ def sinkhorn_loop(
             of the "raw" entropic OT cost
             :math:`\text{OT}_{\varepsilon, \rho}(\al,\be)`?
             This slows down the OT solver but guarantees that our approximation
-            of the Wasserstein distance will be positive and definite
+            of the Wasserstein distance will be positive ands definite
             - up to convergence of the Sinkhorn loop.
             For a detailed discussion of the influence of this parameter,
             see e.g. Fig. 3.21 in Jean Feydy's PhD thesis.

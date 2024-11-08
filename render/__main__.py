@@ -7,12 +7,13 @@ import numpy as np
 import imgui
 import util.file_import as file_import
 from optimal_transport.__main__ import main as ot_main
-from optimal_transport.__main__ import direct_run, naive_direct_run, direct_run_, barycenter_run, run_with_labels
+from optimal_transport.__main__ import direct_run, naive_direct_run, direct_run_, barycenter_run, run_with_labels, otot
 from tkinter.filedialog import askopenfilenames
 import render.util as util
 import subprocess
 import json 
 import os
+import pathlib
 
 compute_shader_code = """
     #version 460
@@ -250,6 +251,8 @@ class Renderer(OrbitDragCameraWindow):
             #self.load_data()
 
         load_debug = imgui.button("Load DEBUG")
+        if load_debug:
+            self.run_debug()
 
         _, self.color_distance = imgui.checkbox("Color Distance", self.color_distance)
 
@@ -274,76 +277,92 @@ class Renderer(OrbitDragCameraWindow):
         imgui.render()
         self.imgui.render(imgui.get_draw_data())
 
+    def run_debug(self):
+        filelist = {"files": [
+                                pathlib.Path(__file__).parents[3] / "data/statues/greif.ply",
+                                pathlib.Path(__file__).parents[3] / "data/statues/loewe.ply"
+                             ]         
+                    }
+        self.generic_run(filelist)
+
     def run_ot(self):
         filelist_path = util.create_tmp_dir() / "filelist.json"
         if filelist_path.is_file:
             with open(filelist_path, 'r') as infile:
                 filelist = json.load(infile)
-                octrees = []
-                mean = None
-                for file in filelist['files']:
-                    if mean is None:
-                        octree, mean = file_import.read(file, None)
-                    else:
-                        octree, _ = file_import.read(file, mean)
-
-                    octrees.append(octree)
-
-                correspondences, matching_colors = direct_run_(octrees)
-                #correspondences = barycenter_run(octrees)
-                #correspondences = run_with_labels(octrees)
+                self.generic_run(filelist)
                 
-                self.number_of_files = len(filelist['files'])
+    
+    def generic_run(self, filelist):
+        octrees = []
+        mean = None
+        for file in filelist['files']:
+            if mean is None:
+                octree, mean = file_import.read(file, None)
+            else:
+                octree, _ = file_import.read(file, mean)
 
-                # perpare compute data e.g. positions and colors
-                for i, oct in enumerate(octrees):
+            octrees.append(octree)
 
-                    positions = oct.points
-                    colors = oct.colors
+        correspondences, matching_colors = otot(octrees)
+        #correspondences = naive_direct_run(octrees)
+        #correspondences, matching_colors = direct_run_(octrees)
+        #correspondences = barycenter_run(octrees)
+        #correspondences = run_with_labels(octrees)
+        
+        self.number_of_files = len(filelist['files'])
 
-                    self.num_points.append(positions.shape[0])
+        # perpare compute data e.g. positions and colors
+        for i, oct in enumerate(octrees):
 
-                    # swap columns due to blender
-                    positions[:,[1, 2]] = positions[:,[2, 1]]
-                    positions = np.c_[positions, np.ones(positions.shape[0])]
+            positions = oct.points
+            colors = oct.colors
 
-                    compute_data = np.empty((positions.shape[0] + colors.shape[0], 4), dtype="f4")
-                    compute_data[0::2,:] = positions
-                    compute_data[1::2,:] = colors
+            self.num_points.append(positions.shape[0])
 
-                    self.points.append(compute_data)
+            # swap columns due to blender
+            positions[:,[1, 2]] = positions[:,[2, 1]]
+            positions = np.c_[positions, np.ones(positions.shape[0])]
 
-                # prepare transition data e.g. assigned positions and colors
-                for i, corres in enumerate(correspondences):
-                    assignment_positions = corres[:]
-                    # swap columns due to blender
-                    assignment_positions[:,[1, 2]] = assignment_positions[:,[2, 1]]
-                    # todo 
-                    assignment_distances = np.linalg.norm(assignment_positions - positions[:, :3], axis=1)
-                    # todo
-                    self.max_distance = np.max(assignment_distances)
-                    assignment = np.empty((len(assignment_positions) * 2, 4), dtype="f4")
-                    assignment[0::2,:] = np.c_[assignment_positions, assignment_distances]
-                    assignment[1::2,:] = matching_colors[i]
-                    assignment = assignment.astype("f4")
-                    self.assignments.append(assignment)
+            compute_data = np.empty((positions.shape[0] + colors.shape[0], 4), dtype="f4")
+            compute_data[0::2,:] = positions
+            compute_data[1::2,:] = colors
 
-                # Create the two buffers the compute shader will write and read from
-                self.current_assignment = 0
-                self.compute_buffer_a = self.ctx.buffer(self.points[self.current_assignment + 1])
-                self.compute_buffer_b = self.ctx.buffer(self.points[self.current_assignment + 1])
-                self.assignment_buffer = self.ctx.buffer(self.assignments[self.current_assignment])
+            self.points.append(compute_data)
 
-                # Prepare vertex arrays to drawing points using the compute shader buffers are input
-                # We use 4x4 (padding format) to skip the velocity data (not needed for drawing the balls)
-                self.points_a = self.ctx.vertex_array(
-                    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
-                )
-                self.points_b = self.ctx.vertex_array(
-                    self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
-                )
+        # prepare transition data e.g. assigned positions and colors
+        for i, corres in enumerate(correspondences):
+            assignment_positions = corres[:]
+            # swap columns due to blender
+            assignment_positions[:,[1, 2]] = assignment_positions[:,[2, 1]]
+            # todo 
+            #positions = octrees[i].points
+            #positions[:,[1, 2]] = positions[:,[2, 1]]
+            assignment_distances = np.linalg.norm(assignment_positions - positions[:, :3], axis=1)
+            # todo
+            self.max_distance = np.max(assignment_distances)
+            assignment = np.empty((len(assignment_positions) * 2, 4), dtype="f4")
+            assignment[0::2,:] = np.c_[assignment_positions, assignment_distances]
+            assignment[1::2,:] = matching_colors[i]
+            assignment = assignment.astype("f4")
+            self.assignments.append(assignment)
 
-                self.loaded = True
+        # Create the two buffers the compute shader will write and read from
+        self.current_assignment = 0
+        self.compute_buffer_a = self.ctx.buffer(self.points[self.current_assignment + 1])
+        self.compute_buffer_b = self.ctx.buffer(self.points[self.current_assignment + 1])
+        self.assignment_buffer = self.ctx.buffer(self.assignments[self.current_assignment])
+
+        # Prepare vertex arrays to drawing points using the compute shader buffers are input
+        # We use 4x4 (padding format) to skip the velocity data (not needed for drawing the balls)
+        self.points_a = self.ctx.vertex_array(
+            self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
+        )
+        self.points_b = self.ctx.vertex_array(
+            self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
+        )
+
+        self.loaded = True
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@ import torch
 import time
 #from geomloss import SamplesLoss
 #from geomloss import ImagesBarycenter
-from geomloss.samples_loss import SamplesLoss
+from geomloss.samples_loss import SamplesLoss, Samplesloss_octree
 import numpy as np
 import logging
 from pykeops.torch import LazyTensor
@@ -33,7 +33,7 @@ def normalize(measure, n=None):
     return (weights, locations), mean, std
 
 
-def OT_registration(source, target, nits=10):
+def OT_registration(source, target, nits=1):
     a, x = source  # weights, locations
     b, y = target  # weights, locations
 
@@ -48,8 +48,7 @@ def OT_registration(source, target, nits=10):
     #Loss = SamplesLoss("sinkhorn", p=2, blur=0.02, scaling=0.4, truncate=1, backend="multiscale", diameter=1.0, cluster_scale=0.01)
     #Loss = SamplesLoss("sinkhorn", p=2, blur=0.02, scaling=0.4, truncate=1, backend="online")
 
-    Loss = SamplesLoss("sinkhorn", p=2, blur=0.001, scaling=0.7, truncate=1, backend="multiscale")
-
+    Loss = SamplesLoss("sinkhorn", p=2, blur=0.001, scaling=0.7, truncate=1, backend="multiscale", verbose=True)
 
     for it in range(nits):
         wasserstein_zy = Loss(a, z, b, y)
@@ -293,3 +292,81 @@ def OT_transport_plan_full(source, target):
     transport_plan = np.dstack((transport_plan, transport_plan, transport_plan))
     tmp = transport_plan * temp_x
     return np.sum(tmp, axis=1)
+
+
+def ot_octree(source, target):
+
+    if use_cuda:
+        torch.cuda.synchronize()
+    start = time.time()
+
+    blur = 0.003
+    p = 2
+
+    #x.requires_grad = True
+    #z = x.clone()  # Moving point cloud
+#
+    #wasserstein_zy = Samplesloss_octree("sinkhorn", p=p, blur=blur, scaling=0.7, truncate=None, backend="multiscale", potentials=True)
+#
+    #[grad_z] = torch.autograd.grad(wasserstein_zy, [z])
+    #z -= grad_z / a[:, None]  # Apply the regularized Brenier map
+    #
+    #return z
+
+
+    Loss = Samplesloss_octree("sinkhorn", p=p, blur=blur, scaling=0.9, truncate=2, backend="multiscale", potentials=True)
+
+    F, G, x, y = Loss(source, target)
+
+    debug_F = F.detach().cpu().numpy()
+    debug_G = G.detach().cpu().numpy()
+
+    N, M, D = source.point_count, target.point_count, 3
+    
+    weights = np.ones(source.points.shape[0])
+    a = torch.tensor(weights / np.sum(weights), dtype=torch.float32, device='cuda')
+
+    weights = np.ones(target.points.shape[0])
+    b = torch.tensor(weights / np.sum(weights), dtype=torch.float32, device='cuda')
+
+    #a, x, b, y = a.contiguous(), x.contiguous(), b.contiguous(), y.contiguous()
+
+    F_i = LazyTensor(F.view(N,1,1))
+    G_j = LazyTensor(G.view(1,M,1))
+    a_i = LazyTensor(a.view(N,1,1))
+    b_j = LazyTensor(b.view(1,M,1))
+    x_i = LazyTensor(x.view(N,1,D))
+    y_j = LazyTensor(y.view(1,M,D))
+    
+    # ...
+    # C_ij is computed using e.g. some points x_i, y_j
+    C_ij = (1/p) * ((x_i - y_j)**p).sum(-1)
+    # ...
+    eps = blur**p  # temperature epsilon
+    # The line below defines a (N, M, 1) symbolic LazyTensor:
+    P_ij = ((F_i + G_j - C_ij) / eps).exp() * (a_i * b_j)
+
+    #P_ij = P_ij.normalize()
+    
+    #[grad_z] = torch.autograd.grad(wasserstein_zy, [z])
+    #z -= grad_z / a[:, None]  # Apply the regularized Brenier map
+    
+    debug = P_ij.sum(1).view(N, 1, 1).detach().cpu().numpy()
+
+    divisor = LazyTensor(P_ij.sum(1).view(N, 1, 1))
+
+    P_ij = P_ij / divisor#LazyTensor(divisor.view(N, 1, 1))
+
+    #dbg = LazyTensor.cat((P_ij, P_ij, P_ij), dim=2)
+    #dbg = dbg @ y_j
+
+    # todo could probably be optimized
+    dbg = torch.stack((P_ij @ y[:, 0].contiguous(), P_ij @ y[:, 1].contiguous(), P_ij @ y[:, 2].contiguous()), dim=1)
+
+    colors_target = torch.tensor(target.colors, dtype=torch.float32, device='cuda')
+    color_matching = torch.stack((P_ij @ colors_target[:, 0].contiguous(), P_ij @ colors_target[:, 1].contiguous(), P_ij @ colors_target[:, 2].contiguous(), P_ij @ colors_target[:, 3].contiguous()), dim=1)
+    
+    end = time.time()
+    print("Registered shape in {:.3f}s.".format(end - start))
+
+    return dbg, color_matching

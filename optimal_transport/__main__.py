@@ -110,9 +110,9 @@ def get_data_direct(points, mode, colors=None, dbg=False):
             weights[random_indices] = 0.0
         weights = torch.tensor(weights / np.sum(weights), dtype=torch.float32, device='cuda')
         points = torch.tensor(points, dtype=torch.float32, device='cuda')
-        #return weights, points
-        (weights, locations), mean, std = ot.normalize((weights, points), n=None)
-        return (weights, locations), mean, std
+        return weights, points
+        #(weights, locations), mean, std = ot.normalize((weights, points), n=None)
+        #return (weights, locations), mean, std
     
     elif mode == 'combined':
         points = np.c_[points, colors]
@@ -127,6 +127,7 @@ def get_data_direct(points, mode, colors=None, dbg=False):
         weights = torch.tensor(weights / np.sum(weights), dtype=torch.float32, device='cuda')
         points = torch.tensor(points, dtype=torch.float32, device='cuda')
         return ot.normalize((weights, points), n=None)
+
 
 def direct_run(octrees, level=1):
     use_cuda = torch.cuda.is_available()
@@ -415,7 +416,7 @@ def get_data_coarse(centroids, pointcount, colors=None):
     weights = torch.tensor(pointcount, dtype=torch.float32, device='cuda')
     centroids = torch.tensor(centroids, dtype=torch.float32, device='cuda')
     return ot.normalize((weights, centroids), n=None)
-    return weights, centroids
+    #return weights, centroids
     #return ot.normalize((weights, points), n=None)
 
 def direct_run_(octrees, level=1):
@@ -468,13 +469,13 @@ def direct_run_(octrees, level=1):
         log.info(f"level: {level}")
 
         # source
-        #centroids_s, pointcount_s, metadata_s, points_s, colors_s = octree_to_data_coarse(octrees[i])
-        centroids_s, pointcount_s, metadata_s, points_s, colors_s = octree_to_data_coarse_more_attributes(octrees[i])
+        centroids_s, pointcount_s, metadata_s, points_s, colors_s = octree_to_data_coarse(octrees[i])
+        #centroids_s, pointcount_s, metadata_s, points_s, colors_s = octree_to_data_coarse_more_attributes(octrees[i])
         level_mask_s = metadata_s[:, 1] == 1
 
         # target, previous point cloud
-        #centroids_t, pointcount_t, metadata_t, points_t, colors_t = octree_to_data_coarse(octrees[i-1])
-        centroids_t, pointcount_t, metadata_t, points_t, colors_t = octree_to_data_coarse_more_attributes(octrees[i-1])
+        centroids_t, pointcount_t, metadata_t, points_t, colors_t = octree_to_data_coarse(octrees[i-1])
+        #centroids_t, pointcount_t, metadata_t, points_t, colors_t = octree_to_data_coarse_more_attributes(octrees[i-1])
         level_mask_t = metadata_t[:, 1] == 1
 
         # balance the assignment 
@@ -762,6 +763,53 @@ def direct_run_color(octrees, level=1):
     timer.toc()
     
     return correspondences_list, colors_list
+
+
+def otot(octrees):
+    
+    numpy = lambda x: x.detach().cpu().numpy()
+
+    correspondences_list = []
+    colors_list = []
+    for i in range(1, len(octrees)): 
+        correspondence, colors_matching = ot.ot_octree(octrees[i], octrees[i-1]) 
+        correspondences_list.append(numpy(correspondence))
+        colors_list.append(numpy(colors_matching))
+    return correspondences_list, colors_list
+
+    use_cuda = torch.cuda.is_available()
+    numpy = lambda x: x.detach().cpu().numpy()
+
+    timer = Timer("Optimal Transport")
+
+    correspondences_list = []
+    for i in range(1, len(octrees)):  
+        log.info(f"Octree: {i}")
+
+        # source
+
+        hierarchy_s, bounds_s, metadata_s, points_s, colors_s = octrees[i - 1].to_list()
+        # todo support mor than two again
+        if len(correspondences_list) == 0:
+            reference = get_data_direct(points_s, 'position', dbg=False)
+        else:
+            reference = (reference[0], torch.tensor(correspondences_list[-1], dtype=torch.float32, device='cuda'))
+
+        # target
+
+        hierarchy_t, bounds_t, metadata_t, points_t, colors_t = octrees[i].to_list()
+        target = get_data_direct(points_t, 'position', dbg=False)
+
+        matching = ot.ot_octree(reference, target)
+        centroids_s = numpy(reference[1])
+        centroids_t = numpy(target[1])
+
+        correspondence_outer = numpy(matching)
+        correspondences_list.append(correspondence_outer)
+
+    timer.toc()
+    
+    return correspondences_list
 
 if __name__ == "__main__":
     main()

@@ -591,6 +591,8 @@ def sinkhorn_multiscale(
         b, y, scale=cluster_scale, labels=labels_y
     )
 
+    debug = ranges_x.detach().cpu().numpy()
+
     jumps = [len(eps_list) - 1]
     for i, eps in enumerate(eps_list[2:]):
         if cluster_scale**p > eps:
@@ -678,5 +680,551 @@ def sinkhorn_multiscale(
         f_x, g_y = F_x.clone(), G_y.clone()
         f_x[perm_x], g_y[perm_y] = F_x, G_y
         return f_x, g_y
+    else:
+        return cost
+    
+
+
+# ==============================================================================
+#                          backend == "octree"
+# ==============================================================================
+
+
+def softmin_octree(eps, C_xy, f_y, log_conv=None):
+    x, y, ranges_x, ranges_y, ranges_xy = C_xy
+    # KeOps is pretty picky on the input shapes...
+    return -eps * log_conv(
+        x, y, f_y.view(-1, 1), torch.Tensor([1 / eps]).type_as(x), ranges=ranges_xy
+    ).view(-1)
+
+
+def clusterize_octree(a, x, scale=None, labels=None):
+    """
+    Performs a simple 'voxelgrid' clustering on the input measure,
+    putting points into cubic bins of size 'scale' = σ_c.
+    The weights are summed, and the centroid position is that of the bin's center of mass.
+    Most importantly, the "fine" lists of weights and points are *sorted*
+    so that clusters are *contiguous in memory*: this allows us to perform
+    kernel truncation efficiently on the GPU.
+
+    If
+        [a_c, a], [x_c, x], [x_ranges] = clusterize(a, x, σ_c),
+    then
+        a_c[k], x_c[k] correspond to
+        a[x_ranges[k,0]:x_ranges[k,1]], x[x_ranges[k,0]:x_ranges[k,1],:]
+    """
+    perm = None  # did we sort the point cloud at some point? Here's the permutation.
+
+    if (
+        labels is None and scale is None
+    ):  # No clustering, single-scale Sinkhorn on the way...
+        return [a], [x], []
+
+    else:  # As of today, only two-scale Sinkhorn is implemented:
+        # Compute simple (voxel-like) class labels:
+        x_lab = grid_cluster(x, scale) if labels is None else labels
+        # Compute centroids and weights:
+        ranges_x, x_c, a_c = cluster_ranges_centroids(x, x_lab, weights=a)
+        # Make clusters contiguous in memory:
+        x_labels, perm = torch.sort(x_lab.view(-1))
+        a, x = a[perm], x[perm]
+
+        # N.B.: the lines above were return to replace a call to
+        #       'sort_clusters' which does not return the permutation,
+        #       an information that is needed to de-permute the dual potentials
+        #       if they are required by the user.
+        # (a, x), x_labels = sort_clusters( (a,x), x_lab)
+
+        return [a_c, a], [x_c, x], [ranges_x], perm
+
+
+def kernel_truncation_octree(
+    C_xy, C_yx, C_xy_, C_yx_, f_ba, g_ab, eps, truncate=None, cost=None, verbose=False
+):
+    """Prunes out useless parts of the (block-sparse) cost matrices for finer scales.
+
+    This is where our approximation takes place.
+    To be mathematically rigorous, we should make several coarse-to-fine passes,
+    making sure that we're not forgetting anyone. A good reference here is
+    Bernhard Schmitzer's work: "Stabilized Sparse Scaling Algorithms for
+    Entropy Regularized Transport Problems, (2016)".
+    """
+    if truncate is None:
+        return C_xy_, C_yx_
+    else:
+        x, yd, ranges_x, ranges_y, _ = C_xy
+        y, xd, _, _, _ = C_yx
+        x_, yd_, ranges_x_, ranges_y_, _ = C_xy_
+        y_, xd_, _, _, _ = C_yx_
+
+        with torch.no_grad():
+            C = cost(x, y)
+            keep = f_ba.view(-1, 1) + g_ab.view(1, -1) > C - truncate * eps
+            ranges_xy_ = from_matrix(ranges_x, ranges_y, keep)
+            if verbose:
+                ks, Cs = keep.sum(), C.shape[0] * C.shape[1]
+                print(
+                    "Keep {}/{} = {:2.1f}% of the coarse cost matrix.".format(
+                        ks, Cs, 100 * float(ks) / Cs
+                    )
+                )
+
+        return (x_, yd_, ranges_x_, ranges_y_, ranges_xy_), (
+            y_,
+            xd_,
+            ranges_y_,
+            ranges_x_,
+            swap_axes(ranges_xy_),
+        )
+
+
+def extrapolate_samples_octree(f_ba, g_ab, eps, damping, C_xy, b_log, C_xy_, softmin=None):
+    yd = C_xy[1]  # Source points (coarse)
+    x_ = C_xy_[0]  # Target points (fine)
+
+    C = (
+        x_,
+        yd,
+        None,
+        None,
+        None,
+    )  # "Rectangular" cost matrix, don't bother with ranges
+    return damping * softmin(eps, C, (b_log + g_ab / eps).detach())
+
+
+def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
+
+    def get_cw(hierarchy_refs):
+        # get centroids 
+        selection = bounds[hierarchy_refs]
+        # todo change to center of mass 
+        centroids = np.r_[[selection[:, 0] + ((selection[:, 3] - selection[:, 0]) / 2.0),
+                        selection[:, 1] + ((selection[:, 4] - selection[:, 1]) / 2.0),
+                       selection[:, 2] + ((selection[:, 5] - selection[:, 2]) / 2.0)]].T
+        centroids = torch.tensor(centroids, dtype=torch.float32, device='cuda')
+
+        # get weights
+        pointcount = metadata[hierarchy_refs, 0]
+        weights = torch.tensor(pointcount, dtype=torch.float32, device='cuda')
+        weights = weights / weights.sum()
+
+        return weights.contiguous(), centroids.contiguous()
+    
+    def get_cw_leaf(idx):
+        # get centroid
+        selection = bounds[idx]
+        # todo change to center of mass 
+        centroid = np.r_[[selection[0] + ((selection[3] - selection[0]) / 2.0),
+                        selection[1] + ((selection[4] - selection[1]) / 2.0),
+                       selection[2] + ((selection[5] - selection[2]) / 2.0)]].T
+
+        # get weights
+        pointcount = metadata[idx, 0]
+
+        # get range in points 
+        ranges = np.r_[metadata[idx, 2], metadata[idx, 2] + metadata[idx, 0]]
+
+        return centroid, pointcount, ranges
+
+    depth = len(octree.node_count)
+    hierarchy, bounds, metadata, points, colors = octree.to_list()
+
+    # coordinates
+    c = []
+    # weights
+    w = []
+    # ranges
+    r = []
+
+    # collect the leafs that extrapolate to the points in the next/last iteration 
+    last_leaf_index = 0
+    # centroids + pointcount
+    leafs = np.zeros((octree.non_empty_leaf_count, 4), dtype=np.float64)
+    leafs_ranges = np.zeros((octree.non_empty_leaf_count, 2), dtype=np.float64)
+
+    # initialize with first eight nodes
+    next_hierarchy_ref = np.argwhere(metadata[:, -1] == 2).ravel()
+
+    # save a counter on how often we hold back nodes for elongation
+    elongate_counter = 0
+    
+    while True:
+        
+        elongated_this_iteration = False
+        # don't elongate in the first iteration
+        if len(next_hierarchy_ref) > 8:
+            if elongate > 0 and elongate_counter < elongate:
+                # take half
+                # alternate which half to take
+                if elongate_counter % 2 == 0:
+                    elongate_hierarchy_ref = next_hierarchy_ref[:len(next_hierarchy_ref) // 2]
+                    next_hierarchy_ref = next_hierarchy_ref[len(next_hierarchy_ref) // 2:]
+                else:
+                    elongate_hierarchy_ref = next_hierarchy_ref[len(next_hierarchy_ref) // 2:]
+                    next_hierarchy_ref = next_hierarchy_ref[:len(next_hierarchy_ref) // 2]
+                elongated_this_iteration = True
+                elongate_counter += 1
+
+        # to index metadata
+        current_metadata_ref = next_hierarchy_ref
+
+        # handle leafs
+        is_leaf = metadata[current_metadata_ref, 1] == 0
+        if np.count_nonzero(~is_leaf) == 0 and not elongated_this_iteration:
+            break
+            # todo extrapolate to the points
+        leaf_idx = current_metadata_ref[is_leaf]
+        # remove leafs from the metadata ref
+        current_metadata_ref = current_metadata_ref[~is_leaf]
+
+        # to index hierarchy
+        current_hierarchy_ref = metadata[current_metadata_ref, 1]
+
+        # the next hierarchy ref is according to the hierarchy array
+        next_hierarchy_ref = np.r_[hierarchy[current_hierarchy_ref]]#.ravel()
+        # compute ranges from the nonzero childs per node
+        childs_per_node = np.count_nonzero(next_hierarchy_ref, axis=1)
+        ranges = np.stack((np.insert(np.cumsum(childs_per_node[:-1]), 0, 0), np.cumsum(childs_per_node)), axis=1)
+        ranges[-1, 1] -= 1
+        # remove empty leafs
+        next_hierarchy_ref = next_hierarchy_ref[next_hierarchy_ref != 0]
+
+        # if we elongated we have to add the second half of the hierarchy_ref again
+        if elongated_this_iteration:
+            next_hierarchy_ref = np.r_[next_hierarchy_ref, elongate_hierarchy_ref]
+
+        # popullated leafs container 
+        if len(leaf_idx) > 0:
+            # handle leafs
+            for index in leaf_idx:
+                # get centroid, pointcount and range in points 
+                coordinates, pointcount, _ranges = get_cw_leaf(index)
+                # add coordinates and pointcount to leafs container
+                leafs[last_leaf_index, :3] = coordinates
+                leafs[last_leaf_index, 3] = pointcount
+                # change ranges 
+                leafs_ranges[last_leaf_index, :] = _ranges
+
+                last_leaf_index += 1
+
+        # get centroids and weights
+        # get centroids 
+        selection = bounds[current_metadata_ref]
+        # todo change to center of mass 
+        centroids = np.r_[[selection[:, 0] + ((selection[:, 3] - selection[:, 0]) / 2.0),
+                        selection[:, 1] + ((selection[:, 4] - selection[:, 1]) / 2.0),
+                       selection[:, 2] + ((selection[:, 5] - selection[:, 2]) / 2.0)]].T
+
+        # get weights
+        pointcount = metadata[current_metadata_ref, 0]
+
+        # add leafs
+        if last_leaf_index > 0:
+            centroids = np.vstack((centroids, leafs[:last_leaf_index, :3]))
+            pointcount = np.hstack((pointcount, leafs[:last_leaf_index, 3]))
+            max_range = np.max(ranges[:, 1]) if len(ranges) > 0 else 0
+            # temp ranges for the leafs where each range has len 1
+            leaf_ranges = np.stack((
+                                np.arange(max_range, max_range + last_leaf_index + 1),
+                                np.arange(max_range + 1, max_range + last_leaf_index + 2)
+                            ))
+            ranges = np.vstack((ranges, leaf_ranges.T))
+
+        # to torch 
+        centroids = torch.tensor(centroids, dtype=torch.float32, device='cuda')
+        weights = torch.tensor(pointcount, dtype=torch.float32, device='cuda')
+        weights = weights / weights.sum()
+        ranges = torch.tensor(ranges, dtype=torch.int32, device='cuda')
+
+        weights, centroids, ranges = weights.contiguous(), centroids.contiguous(), ranges.contiguous()
+        
+        c.append(centroids)
+        w.append(weights)
+        r.append(ranges)
+
+    # append all the leafs 
+    sort = np.argsort(leafs_ranges[:, 0])
+
+    # todo
+    sort = sort[leafs_ranges[sort, 0] != 0] # remove empty leafs
+
+    leafs_ranges = leafs_ranges[sort]
+    ranges = torch.tensor(leafs_ranges, dtype=torch.int32, device='cuda')
+
+    centroids = leafs[sort, :3] 
+    centroids = torch.tensor(centroids, dtype=torch.float32, device='cuda')
+    weights = leafs[sort, 3]
+    weights = torch.tensor(weights, dtype=torch.float32, device='cuda')
+    weights = weights / weights.sum()
+    weights, centroids, ranges = weights.contiguous(), centroids.contiguous(), ranges.contiguous()
+    c.append(centroids)
+    w.append(weights)
+    r.append(ranges)
+    
+    # append the last level e.g. the points themselves
+    centroids = torch.tensor(points, dtype=torch.float32, device='cuda')
+    weights = torch.tensor(np.ones(len(points)), dtype=torch.float32, device='cuda')
+    weights = weights / weights.sum()
+    weights, centroids = weights.contiguous(), centroids.contiguous()
+    c.append(centroids)
+    w.append(weights)
+    r.append(None)
+
+    if verbose:
+        print(f"Number of clusters per scale: {[len(cluster) for cluster in c]}")
+
+    return c, w, r 
+
+    c_reduced = []
+    w_reduced = []
+    r_reduced = []
+    ranges_current = r[0].detach().cpu().numpy()
+    for i in range(1, len(c) - 1):
+
+        tmp_ranges = r[i].detach().cpu().numpy()
+        dbg = ranges_current[:, 0]
+        dbg[1:] += 1
+        dbg_2 = ranges_current[:, 1]
+
+        dbg_3 = tmp_ranges[dbg, 0]
+        dbg_4 = tmp_ranges[dbg_2, 1]
+
+        ranges_current = np.stack((dbg_3, dbg_4), axis=1)
+
+        if i % jumps == 0:
+            c_reduced.append(c[i])
+            w_reduced.append(w[i])
+
+            ranges_current = r[i].detach().cpu().numpy()
+
+        if i % (jumps + 1) == 0:
+
+            _r = torch.tensor(ranges_current, dtype=torch.int32, device='cuda')
+            r_reduced.append(_r)
+
+    c_reduced.append(c[-1])
+    w_reduced.append(w[-1])
+    r_reduced.append(None)
+
+    if verbose:
+        print(f"Reduced clusters per scale: {[len(cluster) for cluster in c_reduced]}")
+
+    return c_reduced, w_reduced, r_reduced
+
+
+def sinkhorn_octree(
+    octree_x,
+    octree_y,
+    p=2,
+    blur=0.05,
+    reach=None,
+    diameter=None,
+    scaling=0.5,
+    truncate=5,
+    cost=None,
+    cluster_scale=None,
+    debias=True,
+    potentials=False,
+    labels_x=None,
+    labels_y=None,
+    verbose=False,
+    **kwargs,
+):
+    #todo 
+    D = 3
+    type = torch.float32
+    #N, D = x.shape
+    #M, _ = y.shape
+
+    if cost is None:
+        cost = cost_formulas[p], cost_routines[p]
+    cost_formula, cost_routine = cost[0], cost[1]
+
+    softmin = partial(
+        softmin_octree, log_conv=keops_lse(cost_formula, D, dtype=str(type)[6:])
+    )
+    extrapolate = partial(extrapolate_samples_octree, softmin=softmin)
+
+    #diameter, eps, eps_list, rho = scaling_parameters(
+    #    x, y, p, blur, reach, diameter, scaling
+    #)
+    # todo 
+    diameter = np.sqrt(3)
+    eps = blur**p
+    rho = None if reach is None else reach**p
+    eps_list = epsilon_schedule(p, diameter, blur, scaling)
+
+    # Clusterize and sort our point clouds:
+    # ensure that these have the same length 
+    depth_x = len(octree_x.node_count)
+    depth_y = len(octree_y.node_count)
+    verbose = True
+    jumps = 1
+    if depth_x != depth_y:
+        diff = abs(depth_x - depth_y)
+        if depth_x > depth_y:
+            c_x, w_x, r_x = get_octree_clusters(octree_x, jumps=jumps, verbose=verbose)
+            c_y, w_y, r_y = get_octree_clusters(octree_y, jumps=jumps, elongate = diff, verbose=verbose)
+        else:
+            c_x, w_x, r_x = get_octree_clusters(octree_x, jumps=jumps, elongate = diff, verbose=verbose)
+            c_y, w_y, r_y = get_octree_clusters(octree_y, jumps=jumps, verbose=verbose)
+    else:
+        c_x, w_x, r_x = get_octree_clusters(octree_x, jumps=jumps, verbose=verbose)
+        c_y, w_y, r_y = get_octree_clusters(octree_y, jumps=jumps, verbose=verbose)
+
+    # jumps
+    #if len(c_x) == 2:
+    #    jumps = [len(eps_list) - (len(eps_list) // 3)]
+    #else:
+    #    sublist_size = len(eps_list) // (len(c_x) - 1)
+    #    remainder = len(eps_list) % (len(c_x) - 1) # to handle the case where the division isn't perfect
+    #    jumps = np.arange(sublist_size, len(eps_list), sublist_size)
+    #    jumps[0] += remainder
+    
+    #min_scale = lambda x, n, m: n - (x**2 / 0.5**m)
+#
+    #cluster_scales = np.logspace(0.0001, 0.2, 100) - 1
+    #dbgscales = [min_scale(x, eps_list[-5], len(c_x)) for x in cluster_scales]
+#
+    #possible_scales = np.argwhere(np.r_[dbgscales] > 0).ravel()
+    #cluster_scale = cluster_scales[possible_scales[-1]]
+#
+    #jumps = []
+    #for i, eps in enumerate(eps_list[2:]):
+    #    if cluster_scale**p > eps:
+    #        jumps.append(i + 1)
+    #        cluster_scale /= 2
+
+    jumps = []
+    jump_count = 0  # Keep track of the number of jumps
+    i = 0           # Start from the first index in eps_list[2:]
+    cluster_scale = 0.5
+    # Loop through eps_list starting from the 3rd element (index 2)
+    while jump_count < len(c_x)-1 and i < len(eps_list) - 5:
+        eps = eps_list[i + 2]
+        
+        # Check the condition for a jump
+        if cluster_scale**p > eps:
+            jumps.append(i + 1)  # Append the jump index (i + 1 because we're using eps_list[2:])
+            cluster_scale /= 2   # Update cluster scale
+            jump_count += 1      # Increment the jump counter
+        
+        i += 1  # Move to the next index
+
+    # If there are still fewer than n jumps and we have more elements, append remaining jumps
+    # But only append as many as there are available in eps_list
+    while jump_count < len(c_x)-1 and i < len(eps_list) - 2:
+        jumps.append(i + 1)
+        i += 1
+        jump_count += 1
+
+    if verbose:
+        print(f"Jumps: {jumps}")
+    #if verbose:
+    #    print(
+    #        "{}x{} clusters, computed at scale = {:2.3f}".format(
+    #            len(x_c), len(y_c), cluster_scale
+    #        )
+    #    )
+    #    print(
+    #        "Successive scales : ",
+    #        ", ".join(["{:.3f}".format(x ** (1 / p)) for x in eps_list]),
+    #    )
+    #    if jumps[0] >= len(eps_list) - 1:
+    #        print("Extrapolate from coarse to fine after the last iteration.")
+    #    else:
+    #        print(
+    #            "Jump from coarse to fine between indices {} (σ={:2.3f}) and {} (σ={:2.3f}).".format(
+    #                jumps[0],
+    #                eps_list[jumps[0]] ** (1 / p),
+    #                jumps[0] + 1,
+    #                eps_list[jumps[0] + 1] ** (1 / p),
+    #            )
+    #        )
+
+    # The input measures are stored at multiple levels
+    a_logs = [log_weights(a) for a in w_x]
+    b_logs = [log_weights(b) for b in w_y]
+
+    # We do the same [ coarse, fine ] decomposition for "cost matrices",
+    # which are implicitely encoded as point clouds
+    # + integer summation ranges, and re-computed on-the-fly:
+    if debias:
+        C_xxs = []
+        for i in range(0, len(c_x) - 1):
+            C_xxs.append((c_x[i], c_x[i].detach(), r_x[i], r_x[i], None))
+        C_xxs.append((c_x[-1], c_x[-1].detach(), None, None, None))
+    else:
+        C_xxs = None
+
+    if debias:
+        C_yys = []
+        for i in range(0, len(c_y) - 1):
+            C_yys.append((c_y[i], c_y[i].detach(), r_y[i], r_y[i], None))
+        C_yys.append((c_y[-1], c_y[-1].detach(), None, None, None))
+    else:
+        C_yys = None
+
+    #C_xxs = (
+    #    [
+    #        (x_c, x_c.detach(), ranges_x, ranges_x, None),
+    #        (x, x.detach(), None, None, None),
+    #    ]
+    #    if debias
+    #    else None
+    #)
+
+    C_xys = []
+    for i in range(0, len(c_x) - 1):
+        C_xys.append((c_x[i], c_y[i].detach(), r_x[i], r_y[i], None))
+    C_xys.append((c_x[-1], c_y[-1].detach(), None, None, None))
+
+    #C_xys = [
+    #    (x_c, y_c.detach(), ranges_x, ranges_y, None),
+    #    (x, y.detach(), None, None, None),
+    #]
+
+    C_yxs = []
+    for i in range(0, len(c_y) - 1):
+        C_yxs.append((c_y[i], c_x[i].detach(), r_y[i], r_x[i], None))
+    C_yxs.append((c_y[-1], c_x[-1].detach(), None, None, None))
+
+    #C_yxs = [
+    #    (y_c, x_c.detach(), ranges_y, ranges_x, None),
+    #    (y, x.detach(), None, None, None),
+    #]
+
+    f_aa, g_bb, g_ab, f_ba = sinkhorn_loop(
+        softmin,
+        a_logs,
+        b_logs,
+        C_xxs,
+        C_yys,
+        C_xys,
+        C_yxs,
+        eps_list,
+        rho,
+        jumps=jumps,
+        cost=cost_routine,
+        kernel_truncation=partial(kernel_truncation, verbose=verbose),
+        truncate=truncate,
+        extrapolate=extrapolate,
+        debias=debias,
+    )
+
+    # todo check 
+    a = w_x[-1]
+    b = w_y[-1]
+
+    cost = sinkhorn_cost(
+        eps, rho, a, b, f_aa, g_bb, g_ab, f_ba, debias=debias, potentials=potentials
+    )
+
+    if potentials:  # we should de-sort the vectors of potential values
+        F_x, G_y = cost
+        f_x, g_y = F_x.clone(), G_y.clone()
+        # todo check 
+        #f_x[perm_x], g_y[perm_y] = F_x, G_y
+        return f_x, g_y, c_x[-1], c_y[-1]
     else:
         return cost

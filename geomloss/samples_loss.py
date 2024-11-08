@@ -8,6 +8,7 @@ from .kernel_samples import kernel_tensorized, kernel_online, kernel_multiscale
 from .sinkhorn_samples import sinkhorn_tensorized
 from .sinkhorn_samples import sinkhorn_online
 from .sinkhorn_samples import sinkhorn_multiscale
+from .sinkhorn_samples import sinkhorn_octree
 
 from .kernel_samples import kernel_tensorized as hausdorff_tensorized
 from .kernel_samples import kernel_online as hausdorff_online
@@ -470,3 +471,87 @@ class SamplesLoss(Module):
             )
 
         return B, N, M, D, l_x, α, l_y, β
+
+
+class Samplesloss_octree(Module):
+
+    def __init__(
+        self,
+        loss="sinkhorn",
+        p=2,
+        blur=0.05,
+        reach=None,
+        diameter=None,
+        scaling=0.5,
+        truncate=5,
+        cost=None,
+        kernel=None,
+        cluster_scale=None,
+        debias=True,
+        potentials=False,
+        verbose=False,
+        backend="auto",
+    ):
+        super(Samplesloss_octree, self).__init__()
+        self.loss = "sinkhorn"
+        self.backend = backend
+        self.p = p
+        self.blur = blur
+        self.reach = reach
+        self.truncate = truncate
+        self.diameter = diameter
+        self.scaling = scaling
+        self.cost = cost
+        self.kernel = kernel
+        self.cluster_scale = cluster_scale
+        self.debias = debias
+        self.potentials = potentials
+        self.verbose = verbose
+
+    def forward(self, *args):
+
+        source_tree, target_tree = args
+
+        values = sinkhorn_octree(
+            source_tree,
+            target_tree,
+            p=self.p,
+            blur=self.blur,
+            reach=self.reach,
+            diameter=self.diameter,
+            scaling=self.scaling,
+            truncate=self.truncate,
+            cost=self.cost,
+            kernel=self.kernel,
+            cluster_scale=self.cluster_scale,
+            debias=self.debias,
+            potentials=self.potentials,
+            labels_x=None,
+            labels_y=None,
+            verbose=self.verbose,
+        )
+
+        # Make sure that the output has the correct shape ------------------------------------
+        if (
+            self.potentials
+        ):  # Return some dual potentials (= test functions) sampled on the input measures
+            F, G, x, y = values
+            return F.view(source_tree.point_count), G.view(target_tree.point_count), x, y
+
+        else:
+            return values
+
+        #else:  # Return a scalar cost value
+            if backend in ["multiscale"]:  # KeOps backends return a single scalar value
+                if B == 0:
+                    return values  # The user expects a scalar value
+                else:
+                    return values.view(
+                        -1
+                    )  # The user expects a "batch list" of distances
+
+            else:  # "tensorized" backend returns a "batch vector" of values
+                if B == 0:
+                    return values[0]  # The user expects a scalar value
+                else:
+                    return values  # The user expects a "batch vector" of distances
