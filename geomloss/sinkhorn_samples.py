@@ -794,38 +794,6 @@ def extrapolate_samples_octree(f_ba, g_ab, eps, damping, C_xy, b_log, C_xy_, sof
 
 def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
 
-    def get_cw(hierarchy_refs):
-        # get centroids 
-        selection = bounds[hierarchy_refs]
-        # todo change to center of mass 
-        centroids = np.r_[[selection[:, 0] + ((selection[:, 3] - selection[:, 0]) / 2.0),
-                        selection[:, 1] + ((selection[:, 4] - selection[:, 1]) / 2.0),
-                       selection[:, 2] + ((selection[:, 5] - selection[:, 2]) / 2.0)]].T
-        centroids = torch.tensor(centroids, dtype=torch.float32, device='cuda')
-
-        # get weights
-        pointcount = metadata[hierarchy_refs, 0]
-        weights = torch.tensor(pointcount, dtype=torch.float32, device='cuda')
-        weights = weights / weights.sum()
-
-        return weights.contiguous(), centroids.contiguous()
-    
-    def get_cw_leaf(idx):
-        # get centroid
-        selection = bounds[idx]
-        # todo change to center of mass 
-        centroid = np.r_[[selection[0] + ((selection[3] - selection[0]) / 2.0),
-                        selection[1] + ((selection[4] - selection[1]) / 2.0),
-                       selection[2] + ((selection[5] - selection[2]) / 2.0)]].T
-
-        # get weights
-        pointcount = metadata[idx, 0]
-
-        # get range in points 
-        ranges = np.r_[metadata[idx, 2], metadata[idx, 2] + metadata[idx, 0]]
-
-        return centroid, pointcount, ranges
-
     depth = len(octree.node_count)
     hierarchy, bounds, metadata, points, colors = octree.to_list()
 
@@ -836,14 +804,8 @@ def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
     # ranges
     r = []
 
-    # collect the leafs that extrapolate to the points in the next/last iteration 
-    last_leaf_index = 0
-    # centroids + pointcount
-    leafs = np.zeros((octree.non_empty_leaf_count, 4), dtype=np.float64)
-    leafs_ranges = np.zeros((octree.non_empty_leaf_count, 2), dtype=np.float64)
-
     # initialize with first eight nodes
-    next_hierarchy_ref = np.argwhere(metadata[:, -1] == 2).ravel()
+    next_metadata_ref = np.argwhere(metadata[:, -1] == 2).ravel()
 
     # save a counter on how often we hold back nodes for elongation
     elongate_counter = 0
@@ -852,60 +814,53 @@ def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
         
         elongated_this_iteration = False
         # don't elongate in the first iteration
-        if len(next_hierarchy_ref) > 8:
+        if len(next_metadata_ref) > 8:
             if elongate > 0 and elongate_counter < elongate:
                 # take half
                 # alternate which half to take
                 if elongate_counter % 2 == 0:
-                    elongate_hierarchy_ref = next_hierarchy_ref[:len(next_hierarchy_ref) // 2]
-                    next_hierarchy_ref = next_hierarchy_ref[len(next_hierarchy_ref) // 2:]
+                    elongate_metadata_ref = next_metadata_ref[:len(next_metadata_ref) // 2]
+                    next_metadata_ref = next_metadata_ref[len(next_metadata_ref) // 2:]
                 else:
-                    elongate_hierarchy_ref = next_hierarchy_ref[len(next_hierarchy_ref) // 2:]
-                    next_hierarchy_ref = next_hierarchy_ref[:len(next_hierarchy_ref) // 2]
+                    elongate_metadata_ref = next_metadata_ref[len(next_metadata_ref) // 2:]
+                    next_metadata_ref = next_metadata_ref[:len(next_metadata_ref) // 2]
                 elongated_this_iteration = True
                 elongate_counter += 1
 
         # to index metadata
-        current_metadata_ref = next_hierarchy_ref
+        current_metadata_ref = next_metadata_ref
 
         # handle leafs
         is_leaf = metadata[current_metadata_ref, 1] == 0
-        if np.count_nonzero(~is_leaf) == 0 and not elongated_this_iteration:
-            break
-            # todo extrapolate to the points
-        leaf_idx = current_metadata_ref[is_leaf]
-        # remove leafs from the metadata ref
-        current_metadata_ref = current_metadata_ref[~is_leaf]
 
         # to index hierarchy
         current_hierarchy_ref = metadata[current_metadata_ref, 1]
 
-        # the next hierarchy ref is according to the hierarchy array
-        next_hierarchy_ref = np.r_[hierarchy[current_hierarchy_ref]]#.ravel()
+        # the next hierarchy ref, for non leafs, is according to the hierarchy array
+        next_metadata_ref = np.zeros((len(current_metadata_ref), 8), dtype=np.int64)
+        next_metadata_ref[~is_leaf] = np.r_[hierarchy[current_hierarchy_ref[~is_leaf]]]
+        # for leafs we need the same node again, so we add a row with the index and then 7 zeros 
+        carry_on = np.zeros((np.count_nonzero(is_leaf), 8))
+        carry_on[:, 0] = current_metadata_ref[is_leaf]
+        next_metadata_ref[is_leaf] = carry_on
+
         # compute ranges from the nonzero childs per node
-        childs_per_node = np.count_nonzero(next_hierarchy_ref, axis=1)
+        childs_per_node = np.count_nonzero(next_metadata_ref, axis=1)
         ranges = np.stack((np.insert(np.cumsum(childs_per_node[:-1]), 0, 0), np.cumsum(childs_per_node)), axis=1)
-        ranges[-1, 1] -= 1
+        # todo ?
+        #ranges[-1, 1] -= 1
         # remove empty leafs
-        next_hierarchy_ref = next_hierarchy_ref[next_hierarchy_ref != 0]
+        next_metadata_ref = next_metadata_ref[next_metadata_ref != 0]
 
         # if we elongated we have to add the second half of the hierarchy_ref again
         if elongated_this_iteration:
-            next_hierarchy_ref = np.r_[next_hierarchy_ref, elongate_hierarchy_ref]
+            if elongate_counter % 2 == 0:
+                next_metadata_ref = np.r_[elongate_metadata_ref, next_metadata_ref]
+            else:
+                next_metadata_ref = np.r_[next_metadata_ref, elongate_metadata_ref]
 
-        # popullated leafs container 
-        if len(leaf_idx) > 0:
-            # handle leafs
-            for index in leaf_idx:
-                # get centroid, pointcount and range in points 
-                coordinates, pointcount, _ranges = get_cw_leaf(index)
-                # add coordinates and pointcount to leafs container
-                leafs[last_leaf_index, :3] = coordinates
-                leafs[last_leaf_index, 3] = pointcount
-                # change ranges 
-                leafs_ranges[last_leaf_index, :] = _ranges
 
-                last_leaf_index += 1
+        ##### Finally add the centroids, weights and computed ranges
 
         # get centroids and weights
         # get centroids 
@@ -917,18 +872,6 @@ def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
 
         # get weights
         pointcount = metadata[current_metadata_ref, 0]
-
-        # add leafs
-        if last_leaf_index > 0:
-            centroids = np.vstack((centroids, leafs[:last_leaf_index, :3]))
-            pointcount = np.hstack((pointcount, leafs[:last_leaf_index, 3]))
-            max_range = np.max(ranges[:, 1]) if len(ranges) > 0 else 0
-            # temp ranges for the leafs where each range has len 1
-            leaf_ranges = np.stack((
-                                np.arange(max_range, max_range + last_leaf_index + 1),
-                                np.arange(max_range + 1, max_range + last_leaf_index + 2)
-                            ))
-            ranges = np.vstack((ranges, leaf_ranges.T))
 
         # to torch 
         centroids = torch.tensor(centroids, dtype=torch.float32, device='cuda')
@@ -942,25 +885,16 @@ def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
         w.append(weights)
         r.append(ranges)
 
-    # append all the leafs 
-    sort = np.argsort(leafs_ranges[:, 0])
+        if np.count_nonzero(~is_leaf) == 0 and not elongated_this_iteration:
+            # extrapolate to the points
+            break
 
-    # todo
-    sort = sort[leafs_ranges[sort, 0] != 0] # remove empty leafs
+    # change the last ranges where all nodes are leafs to the point ranges
+    point_ref = metadata[next_metadata_ref, 2]
+    point_count = metadata[next_metadata_ref, 0]
+    point_range = np.stack((point_ref, point_ref + point_count), axis=1)
+    r[-1] = torch.tensor(point_range, dtype=torch.int32, device='cuda').contiguous()
 
-    leafs_ranges = leafs_ranges[sort]
-    ranges = torch.tensor(leafs_ranges, dtype=torch.int32, device='cuda')
-
-    centroids = leafs[sort, :3] 
-    centroids = torch.tensor(centroids, dtype=torch.float32, device='cuda')
-    weights = leafs[sort, 3]
-    weights = torch.tensor(weights, dtype=torch.float32, device='cuda')
-    weights = weights / weights.sum()
-    weights, centroids, ranges = weights.contiguous(), centroids.contiguous(), ranges.contiguous()
-    c.append(centroids)
-    w.append(weights)
-    r.append(ranges)
-    
     # append the last level e.g. the points themselves
     centroids = torch.tensor(points, dtype=torch.float32, device='cuda')
     weights = torch.tensor(np.ones(len(points)), dtype=torch.float32, device='cuda')
@@ -974,42 +908,6 @@ def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
         print(f"Number of clusters per scale: {[len(cluster) for cluster in c]}")
 
     return c, w, r 
-
-    c_reduced = []
-    w_reduced = []
-    r_reduced = []
-    ranges_current = r[0].detach().cpu().numpy()
-    for i in range(1, len(c) - 1):
-
-        tmp_ranges = r[i].detach().cpu().numpy()
-        dbg = ranges_current[:, 0]
-        dbg[1:] += 1
-        dbg_2 = ranges_current[:, 1]
-
-        dbg_3 = tmp_ranges[dbg, 0]
-        dbg_4 = tmp_ranges[dbg_2, 1]
-
-        ranges_current = np.stack((dbg_3, dbg_4), axis=1)
-
-        if i % jumps == 0:
-            c_reduced.append(c[i])
-            w_reduced.append(w[i])
-
-            ranges_current = r[i].detach().cpu().numpy()
-
-        if i % (jumps + 1) == 0:
-
-            _r = torch.tensor(ranges_current, dtype=torch.int32, device='cuda')
-            r_reduced.append(_r)
-
-    c_reduced.append(c[-1])
-    w_reduced.append(w[-1])
-    r_reduced.append(None)
-
-    if verbose:
-        print(f"Reduced clusters per scale: {[len(cluster) for cluster in c_reduced]}")
-
-    return c_reduced, w_reduced, r_reduced
 
 
 def sinkhorn_octree(
@@ -1117,6 +1015,9 @@ def sinkhorn_octree(
         jumps.append(i + 1)
         i += 1
         jump_count += 1
+
+    # todo dont forget!
+    #jumps[-1] = len(eps_list) - 1
 
     if verbose:
         print(f"Jumps: {jumps}")

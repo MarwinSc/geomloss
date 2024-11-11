@@ -128,7 +128,7 @@ class Renderer(OrbitDragCameraWindow):
     """
     aspect_ratio = None
     gl_version = (4, 6)
-    resource_dir = Path(__file__).parents[3].resolve() / 'data'
+    resource_dir = Path(__file__).parents[3].resolve()
     title = "Morph"
     loaded = False
     assignments = []
