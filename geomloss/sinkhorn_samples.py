@@ -805,7 +805,7 @@ def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
     r = []
 
     # initialize with first eight nodes
-    next_metadata_ref = np.argwhere(metadata[:, -1] == 2).ravel()
+    next_metadata_ref = np.argwhere(metadata[:, -1] == 1).ravel()
 
     # save a counter on how often we hold back nodes for elongation
     elongate_counter = 0
@@ -897,7 +897,7 @@ def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
 
     # append the last level e.g. the points themselves
     centroids = torch.tensor(points, dtype=torch.float32, device='cuda')
-    weights = torch.tensor(np.ones(len(points)), dtype=torch.float32, device='cuda')
+    weights = torch.tensor(np.ones(len(centroids)), dtype=torch.float32, device='cuda')
     weights = weights / weights.sum()
     weights, centroids = weights.contiguous(), centroids.contiguous()
     c.append(centroids)
@@ -930,7 +930,7 @@ def sinkhorn_octree(
 ):
     #todo 
     D = 3
-    type = torch.float32
+    _type = torch.float32
     #N, D = x.shape
     #M, _ = y.shape
 
@@ -939,7 +939,7 @@ def sinkhorn_octree(
     cost_formula, cost_routine = cost[0], cost[1]
 
     softmin = partial(
-        softmin_octree, log_conv=keops_lse(cost_formula, D, dtype=str(type)[6:])
+        softmin_octree, log_conv=keops_lse(cost_formula, D, dtype=str(_type)[6:])
     )
     extrapolate = partial(extrapolate_samples_octree, softmin=softmin)
 
@@ -993,34 +993,48 @@ def sinkhorn_octree(
     #        jumps.append(i + 1)
     #        cluster_scale /= 2
 
-    jumps = []
-    jump_count = 0  # Keep track of the number of jumps
-    i = 0           # Start from the first index in eps_list[2:]
-    cluster_scale = 0.5
-    # Loop through eps_list starting from the 3rd element (index 2)
-    while jump_count < len(c_x)-1 and i < len(eps_list) - 5:
-        eps = eps_list[i + 2]
-        
-        # Check the condition for a jump
-        if cluster_scale**p > eps:
-            jumps.append(i + 1)  # Append the jump index (i + 1 because we're using eps_list[2:])
-            cluster_scale /= 2   # Update cluster scale
-            jump_count += 1      # Increment the jump counter
-        
-        i += 1  # Move to the next index
-
-    # If there are still fewer than n jumps and we have more elements, append remaining jumps
-    # But only append as many as there are available in eps_list
-    while jump_count < len(c_x)-1 and i < len(eps_list) - 2:
-        jumps.append(i + 1)
-        i += 1
-        jump_count += 1
-
-    # todo dont forget!
-    #jumps[-1] = len(eps_list) - 1
-
     if verbose:
-        print(f"Jumps: {jumps}")
+        print(f"eps: {len(eps_list)}")
+
+    if True:
+        jumps = []
+        jump_count = 0  # Keep track of the number of jumps
+        i = 0           # Start from the first index in eps_list[2:]
+        cluster_scale = 0.5
+        # Loop through eps_list starting from the 3rd element (index 2)
+        while jump_count < len(c_x)-1 and i < len(eps_list) - 5:
+            eps = eps_list[i + 2]
+            
+            # Check the condition for a jump
+            if cluster_scale**p > eps:
+                jumps.append(i + 1)  # Append the jump index (i + 1 because we're using eps_list[2:])
+                cluster_scale /= 2   # Update cluster scale
+                jump_count += 1      # Increment the jump counter
+            
+            i += 1  # Move to the next index
+
+        # If there are still fewer than n jumps and we have more elements, append remaining jumps
+        # But only append as many as there are available in eps_list
+        while jump_count < len(c_x)-1 and i < len(eps_list) - 2:
+            jumps.append(i + 1)
+            i += 1
+            jump_count += 1
+
+        # todo dont forget!
+    #    jumps[-1] = len(eps_list) - 1
+        #jumps[-1] = jumps[-2] + 10
+
+        if verbose:
+            print(f"Jumps: {jumps}")
+
+    else:
+        #jumps = [3,6,15,33,40]
+        #jumps = [3,6,15,33,len(eps_list) - 2]
+
+        jumps = [6, 13, 19, 26, 33, 39, 46, 53]
+
+
+
     #if verbose:
     #    print(
     #        "{}x{} clusters, computed at scale = {:2.3f}".format(
@@ -1124,6 +1138,10 @@ def sinkhorn_octree(
     if potentials:  # we should de-sort the vectors of potential values
         F_x, G_y = cost
         f_x, g_y = F_x.clone(), G_y.clone()
+
+        print(f"f_x non finite:  {len(f_x) - torch.count_nonzero(torch.isfinite(f_x))}")
+        print(f"g_y non finite:  {len(g_y) - torch.count_nonzero(torch.isfinite(g_y))}")
+
         # todo check 
         #f_x[perm_x], g_y[perm_y] = F_x, G_y
         return f_x, g_y, c_x[-1], c_y[-1]

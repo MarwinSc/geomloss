@@ -260,7 +260,7 @@ def naive_direct_run(octrees, level=1):
 
         # source
 
-        hierarchy_s, bounds_s, metadata_s, points_s, colors_s = octrees[i - 1].to_list()
+        hierarchy_s, bounds_s, metadata_s, points_s, colors_s = octrees[i].to_list()
         # todo support mor than two again
         if len(correspondences_list) == 0:
             reference = get_data_direct(points_s, 'position', dbg=False)
@@ -269,7 +269,7 @@ def naive_direct_run(octrees, level=1):
 
         # target
 
-        hierarchy_t, bounds_t, metadata_t, points_t, colors_t = octrees[i].to_list()
+        hierarchy_t, bounds_t, metadata_t, points_t, colors_t = octrees[i-1].to_list()
         target = get_data_direct(points_t, 'position', dbg=False)
 
         matching = ot.OT_registration(reference, target)

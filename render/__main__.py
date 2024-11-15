@@ -344,6 +344,7 @@ class Renderer(OrbitDragCameraWindow):
             assignment = np.empty((len(assignment_positions) * 2, 4), dtype="f4")
             assignment[0::2,:] = np.c_[assignment_positions, assignment_distances]
             assignment[1::2,:] = matching_colors[i]
+            #assignment[1::2,:] = colors
             assignment = assignment.astype("f4")
             self.assignments.append(assignment)
 

@@ -20,15 +20,15 @@ class Octree:
         self.colors = colors
 
         timer = Timer("Octree Creation:")
-        bounds = np.array([[np.min(points[:, 0]), np.min(points[:, 1]), np.min(points[:, 2])],
-                           [np.max(points[:, 0]), np.max(points[:, 1]), np.max(points[:, 2])]], dtype=np.float32)
+        bounds = np.array([[np.min(points[:, 0]) - 0.01, np.min(points[:, 1]) - 0.01, np.min(points[:, 2]) - 0.01],
+                           [np.max(points[:, 0]) + 0.01, np.max(points[:, 1]) + 0.01, np.max(points[:, 2]) + 0.01]], dtype=np.float32)
         self.root = Root(points, colors, bounds, None, 0, self)
 
         timer.toc()
         
         # to keep track of references when writing the file
-        self.hierarchy_id = 0
-        self.point_id = 1
+        self.hierarchy_id = 1
+        self.point_id = 0
 
     def write(self, filename, as_bytes=False):
         timer = Timer("Octree Write:")
@@ -47,20 +47,21 @@ class Octree:
     def to_list(self):
         timer = Timer("Octree to list")
 
-        # index for the metadata of knots
-        self.hierarchy_id = 0
-        # index for the hierarchy
-        self.hierarchy_index = 0
+        # index for the metadata of all nodes
+        # 0 in hierarchy array is reserved for empty leafs -> no metadata[0] element
+        self.hierarchy_id = 1
+        # index for the hierarchy for knots
+        self.hierarchy_index = 0 
         # index into the points
-        self.point_id = 1
+        self.point_id = 0
         
         self.hierarchy = np.zeros((self.knot_count, 8), dtype=np.uint32)
-        self.bounds = np.zeros((self.knot_count + self.leaf_count, 6))
-        self.metadata = np.zeros((self.knot_count + self.leaf_count, 4), dtype=np.uint32)
+        self.bounds = np.zeros((self.knot_count + self.non_empty_leaf_count + 1, 6))
+        self.metadata = np.zeros((self.knot_count + self.non_empty_leaf_count + 1, 4), dtype=np.uint32)
         self.points = np.zeros((self.point_count, 3))
         self.colors = np.zeros((self.point_count, 4))
         self.root.to_list()
-        
+
         timer.toc()
 
         # hierarchy numpy array with row for each knot, indicating the children in self.metadata
@@ -118,7 +119,6 @@ class Leaf(Node):
             # used in the parent knot
             self.hierarchy_ref = self.octree.hierarchy_id
             self.octree.hierarchy_id += 1
-            self.point_ref = 0
 
             self.point_ref = self.octree.point_id
             self.octree.point_id += len(self)
@@ -187,7 +187,6 @@ class Knot(Node):
         self.total_points = None
         self.setup_children(points, colors)
         octree.knot_count += 1
-
 
     def __len__(self):
         return self.total_points
@@ -341,5 +340,3 @@ class Knot(Node):
 class Root(Knot):
     def __init__(self, points, colors, bounds, nodeindex, level, octree):
         super().__init__(points, colors, bounds, nodeindex, level, octree)
-        octree.knot_count += 1
-

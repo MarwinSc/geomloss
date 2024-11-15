@@ -24,7 +24,7 @@ def read(filename, mean):
     if extension == ".obj":
         mesh = meshio.read(filename, file_format="obj")
         points = mesh.points
-        colors = None
+        colors = np.ones((points.shape[0], 4), dtype=np.float32)
 
     elif extension == ".ply":
 
@@ -35,20 +35,21 @@ def read(filename, mean):
         timer_inner.toc()
         
         points = mesh.points
-
+        
+        if False:
         # todo
-        #return points, None
-
-        red = mesh.point_data['red'].astype(np.ubyte)
-        green = mesh.point_data['green'].astype(np.ubyte)
-        blue = mesh.point_data['blue'].astype(np.ubyte)
-        colors = np.hstack((red.reshape(red.shape[0], 1),
-                            green.reshape(green.shape[0], 1),
-                            blue.reshape(blue.shape[0], 1)))
-        colors = colors.astype(np.float32)
-        #  todo change min max to 0 and 255
-        colors = (1.0 / (np.max(colors) - np.min(colors))) * (colors - np.min(colors))  # map to range 0, 1
-        colors = np.hstack((colors, np.ones((colors.shape[0], 1), dtype=np.float32)))
+            colors = np.ones((points.shape[0], 4), dtype=np.float32)
+        else:
+            red = mesh.point_data['red'].astype(np.ubyte)
+            green = mesh.point_data['green'].astype(np.ubyte)
+            blue = mesh.point_data['blue'].astype(np.ubyte)
+            colors = np.hstack((red.reshape(red.shape[0], 1),
+                                green.reshape(green.shape[0], 1),
+                                blue.reshape(blue.shape[0], 1)))
+            colors = colors.astype(np.float32)
+            #  todo change min max to 0 and 255
+            colors = (1.0 / (np.max(colors) - np.min(colors))) * (colors - np.min(colors))  # map to range 0, 1
+            colors = np.hstack((colors, np.ones((colors.shape[0], 1), dtype=np.float32)))
 
     elif extension == ".e57":
         pc = e57.read_points(filename)

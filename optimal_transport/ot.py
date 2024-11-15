@@ -48,7 +48,7 @@ def OT_registration(source, target, nits=1):
     #Loss = SamplesLoss("sinkhorn", p=2, blur=0.02, scaling=0.4, truncate=1, backend="multiscale", diameter=1.0, cluster_scale=0.01)
     #Loss = SamplesLoss("sinkhorn", p=2, blur=0.02, scaling=0.4, truncate=1, backend="online")
 
-    Loss = SamplesLoss("sinkhorn", p=2, blur=0.001, scaling=0.7, truncate=1, backend="multiscale", verbose=True)
+    Loss = SamplesLoss("sinkhorn", p=2, blur=0.003, scaling=0.9, truncate=10, backend="multiscale", verbose=True)
 
     for it in range(nits):
         wasserstein_zy = Loss(a, z, b, y)
@@ -314,12 +314,14 @@ def ot_octree(source, target):
     #return z
 
 
-    Loss = Samplesloss_octree("sinkhorn", p=p, blur=blur, scaling=0.9, truncate=2, backend="multiscale", potentials=True)
+    Loss = Samplesloss_octree("sinkhorn", p=p, blur=blur, scaling=0.7, truncate=2, backend="multiscale", potentials=True)#, reach=1)
 
     F, G, x, y = Loss(source, target)
 
     debug_F = F.detach().cpu().numpy()
     debug_G = G.detach().cpu().numpy()
+    print(f"f real: {np.count_nonzero(np.isfinite(debug_F))}, min {np.min(debug_F)}, max {np.max(debug_F)}")
+    print(f"g real: {np.count_nonzero(np.isfinite(debug_G))}, min {np.min(debug_G)}, max {np.max(debug_G)}")
 
     N, M, D = source.point_count, target.point_count, 3
     
