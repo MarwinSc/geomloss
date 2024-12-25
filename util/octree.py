@@ -4,10 +4,11 @@ import numpy as np
 import json
 import struct
 from util.timer import Timer
+import torch
 
 class Octree:
 
-    def __init__(self, points, leaf_points, colors=None):
+    def __init__(self, points, leaf_points, colors=None, normalize=True, autograd=False):
 
         self.num_leaf_points = leaf_points # stopage criterion
 
@@ -17,7 +18,16 @@ class Octree:
         self.knot_count = 0
         self.point_count = len(points)
 
+        self.requires_grad = autograd
+
         self.colors = colors
+
+        if normalize:
+            min_vals = points.min(axis=0)
+            max_vals = points.max(axis=0)
+
+            # Normalize the coordinates
+            points = (points - min_vals) / (max_vals - min_vals)
 
         timer = Timer("Octree Creation:")
         bounds = np.array([[np.min(points[:, 0]) - 0.01, np.min(points[:, 1]) - 0.01, np.min(points[:, 2]) - 0.01],
@@ -64,9 +74,17 @@ class Octree:
 
         timer.toc()
 
+        # convert the numpy arrays to torch tensors, to utilize autograd
+        self.points = torch.tensor(self.points, dtype=torch.float32, device='cuda')
+        self.points.requires_grad = self.requires_grad
+
+        self.weights = torch.tensor(np.ones(len(self.points)), dtype=torch.float32, device='cuda')
+        self.weights = self.weights / self.weights.sum()
+        self.weights, self.points = self.weights.contiguous(), self.points.contiguous()
+
         # hierarchy numpy array with row for each knot, indicating the children in self.metadata
         
-        return self.hierarchy, self.bounds, self.metadata, self.points, self.colors
+        return self.hierarchy, self.bounds, self.metadata, self.points, self.colors, self.weights
 
 
 class Node:

@@ -795,7 +795,7 @@ def extrapolate_samples_octree(f_ba, g_ab, eps, damping, C_xy, b_log, C_xy_, sof
 def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
 
     depth = len(octree.node_count)
-    hierarchy, bounds, metadata, points, colors = octree.to_list()
+    hierarchy, bounds, metadata, points, colors, all_weights = octree.to_list()
 
     # coordinates
     c = []
@@ -896,12 +896,9 @@ def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
     r[-1] = torch.tensor(point_range, dtype=torch.int32, device='cuda').contiguous()
 
     # append the last level e.g. the points themselves
-    centroids = torch.tensor(points, dtype=torch.float32, device='cuda')
-    weights = torch.tensor(np.ones(len(centroids)), dtype=torch.float32, device='cuda')
-    weights = weights / weights.sum()
-    weights, centroids = weights.contiguous(), centroids.contiguous()
-    c.append(centroids)
-    w.append(weights)
+    # todo needs clone()?
+    c.append(points)
+    w.append(all_weights)
     r.append(None)
 
     if verbose:
@@ -994,7 +991,7 @@ def sinkhorn_octree(
     #        cluster_scale /= 2
 
     if verbose:
-        print(f"eps: {len(eps_list)}")
+        print(f"eps: {len(eps_list)}, {eps_list}")
 
     if True:
         jumps = []

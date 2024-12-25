@@ -315,7 +315,7 @@ class Renderer(OrbitDragCameraWindow):
         # perpare compute data e.g. positions and colors
         for i, oct in enumerate(octrees):
 
-            positions = oct.points
+            positions = oct.points.detach().cpu().numpy()
             colors = oct.colors
 
             self.num_points.append(positions.shape[0])

@@ -467,6 +467,9 @@ def sinkhorn_loop(
 
     # Lines 4-5: eps-scaling descent ---------------------------------------------------
     for i, eps in enumerate(eps_list):  # See Fig. 3.25-26 in Jean Feydy's PhD thesis.
+
+        print(f"Sinkhorn loop: iteration {i} / {Nits}")
+
         # Line 6: update the damping coefficient ---------------------------------------
         damping = dampening(eps, rho)  # eps and damping change across iterations
 

@@ -123,7 +123,7 @@ def read(filename, mean):
     
     timer.toc()
 
-    oct = octree.Octree(normalized_points, 1000, colors=colors)
+    oct = octree.Octree(normalized_points, 1000, colors=colors, autograd=True)
 
     return oct, mean
 

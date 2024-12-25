@@ -42,25 +42,25 @@ def OT_registration(source, target, nits=1):
 
     if use_cuda:
         torch.cuda.synchronize()
-    start = time.time()
 
     #Loss = SamplesLoss("sinkhorn", p=2, blur=0.01, scaling=0.5, truncate=1)
     #Loss = SamplesLoss("sinkhorn", p=2, blur=0.02, scaling=0.4, truncate=1, backend="multiscale", diameter=1.0, cluster_scale=0.01)
     #Loss = SamplesLoss("sinkhorn", p=2, blur=0.02, scaling=0.4, truncate=1, backend="online")
 
-    Loss = SamplesLoss("sinkhorn", p=2, blur=0.003, scaling=0.9, truncate=10, backend="multiscale", verbose=True)
+    Loss = SamplesLoss("sinkhorn", p=2, blur=0.003, scaling=0.7, truncate=0.1, backend="multiscale", verbose=True)
 
     for it in range(nits):
         wasserstein_zy = Loss(a, z, b, y)
+
+        start = time.time()
 
         [grad_z] = torch.autograd.grad(wasserstein_zy, [z])
         z -= grad_z / a[:, None]  # Apply the regularized Brenier map
 
         # save_vtk(f"matching_{name}_it_{it}.vtk", numpy(z), colors)
 
-
-    end = time.time()
-    print("Registered shape in {:.3f}s.".format(end - start))
+        end = time.time()
+        print("Autodiff gradient in {:.3f}s.".format(end - start))
 
     return z
 
@@ -293,14 +293,13 @@ def OT_transport_plan_full(source, target):
     tmp = transport_plan * temp_x
     return np.sum(tmp, axis=1)
 
-
 def ot_octree(source, target):
 
     if use_cuda:
         torch.cuda.synchronize()
     start = time.time()
 
-    blur = 0.003
+    blur = 0.001
     p = 2
 
     #x.requires_grad = True
@@ -317,6 +316,10 @@ def ot_octree(source, target):
     Loss = Samplesloss_octree("sinkhorn", p=p, blur=blur, scaling=0.7, truncate=2, backend="multiscale", potentials=True)#, reach=1)
 
     F, G, x, y = Loss(source, target)
+
+    end = time.time()   
+    print("Registered shape in {:.3f}s.".format(end - start))
+    start = time.time()
 
     debug_F = F.detach().cpu().numpy()
     debug_G = G.detach().cpu().numpy()
@@ -339,36 +342,86 @@ def ot_octree(source, target):
     b_j = LazyTensor(b.view(1,M,1))
     x_i = LazyTensor(x.view(N,1,D))
     y_j = LazyTensor(y.view(1,M,D))
+
+    end = time.time()   
+    print("Set up Lazytensors in {:.3f}s.".format(end - start))
+    start = time.time()
     
     # ...
     # C_ij is computed using e.g. some points x_i, y_j
     C_ij = (1/p) * ((x_i - y_j)**p).sum(-1)
+
+    end = time.time()   
+    print("Form the cost matrix in {:.3f}s.".format(end - start))
+    start = time.time()
+
     # ...
     eps = blur**p  # temperature epsilon
     # The line below defines a (N, M, 1) symbolic LazyTensor:
-    P_ij = ((F_i + G_j - C_ij) / eps).exp() * (a_i * b_j)
+    P_ij = ((F_i + G_j - C_ij) / eps).exp()# * (a_i * b_j)
+
+    end = time.time()   
+    print("Form the Transport matrix in {:.3f}s.".format(end - start))
+    start = time.time()
 
     #P_ij = P_ij.normalize()
     
     #[grad_z] = torch.autograd.grad(wasserstein_zy, [z])
     #z -= grad_z / a[:, None]  # Apply the regularized Brenier map
-    
-    debug = P_ij.sum(1).view(N, 1, 1).detach().cpu().numpy()
 
-    divisor = LazyTensor(P_ij.sum(1).view(N, 1, 1))
+    #divisor = LazyTensor(P_ij.sum(1).view(N, 1, 1))
 
-    P_ij = P_ij / divisor#LazyTensor(divisor.view(N, 1, 1))
+    #debug = P_ij.sum(1).detach().cpu().numpy()
+
+    P_ij = P_ij / P_ij.sum(1).view(N, 1, 1)
 
     #dbg = LazyTensor.cat((P_ij, P_ij, P_ij), dim=2)
     #dbg = dbg @ y_j
 
+    end = time.time()   
+    print("Normalize the Transport matrix in {:.3f}s.".format(end - start))
+    start = time.time()
+
     # todo could probably be optimized
-    dbg = torch.stack((P_ij @ y[:, 0].contiguous(), P_ij @ y[:, 1].contiguous(), P_ij @ y[:, 2].contiguous()), dim=1)
+    #dbg = torch.stack((P_ij @ y[:, 0].contiguous(), P_ij @ y[:, 1].contiguous(), P_ij @ y[:, 2].contiguous()), dim=1)
+
+    dbg = P_ij @ y
+
+    end = time.time()   
+    print("Compute coordinates in {:.3f}s.".format(end - start))
+    start = time.time()
 
     colors_target = torch.tensor(target.colors, dtype=torch.float32, device='cuda')
-    color_matching = torch.stack((P_ij @ colors_target[:, 0].contiguous(), P_ij @ colors_target[:, 1].contiguous(), P_ij @ colors_target[:, 2].contiguous(), P_ij @ colors_target[:, 3].contiguous()), dim=1)
-    
-    end = time.time()
-    print("Registered shape in {:.3f}s.".format(end - start))
+    #color_matching = torch.stack((P_ij @ colors_target[:, 0].contiguous(), P_ij @ colors_target[:, 1].contiguous(), P_ij @ colors_target[:, 2].contiguous(), P_ij @ colors_target[:, 3].contiguous()), dim=1)
+    color_matching = P_ij @ colors_target
+
+    end = time.time()   
+    print("Compute Colors {:.3f}s.".format(end - start))
 
     return dbg, color_matching
+
+
+def ot_octree_autodiff(source, target):
+
+    if use_cuda:
+        torch.cuda.synchronize()
+    start = time.time()
+
+    blur = 0.001
+    p = 2
+
+    Loss = Samplesloss_octree("sinkhorn", p=p, blur=blur, scaling=0.7, truncate=2, backend="multiscale", potentials=False)#, reach=1)
+
+    emd = Loss(source, target)
+    [grad_source] = torch.autograd.grad(emd, [source.points])
+
+    points = source.points.clone() - grad_source / source.weights[:, None]  # Apply the regularized Brenier map
+
+    #source.points -= grad_source / source.weights[:, None]  # Apply the regularized Brenier map
+
+    end = time.time()   
+    print("Registered shape in {:.3f}s.".format(end - start))
+
+    return points, torch.tensor(source.colors, dtype=torch.float32, device='cuda')
+
+

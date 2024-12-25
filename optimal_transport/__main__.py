@@ -766,13 +766,15 @@ def direct_run_color(octrees, level=1):
 
 
 def otot(octrees):
+
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     
     numpy = lambda x: x.detach().cpu().numpy()
 
     correspondences_list = []
     colors_list = []
     for i in range(1, len(octrees)): 
-        correspondence, colors_matching = ot.ot_octree(octrees[i], octrees[i-1]) 
+        correspondence, colors_matching = ot.ot_octree_autodiff(octrees[i], octrees[i-1]) 
         correspondences_list.append(numpy(correspondence))
         colors_list.append(numpy(colors_matching))
     return correspondences_list, colors_list
