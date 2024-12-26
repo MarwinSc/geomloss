@@ -7,6 +7,7 @@ import numpy as np
 import logging
 from pykeops.torch import LazyTensor
 
+from scipy.spatial import KDTree
 
 use_cuda = torch.cuda.is_available()
 
@@ -410,11 +411,12 @@ def ot_octree_autodiff(source, target):
     blur = 0.001
     p = 2
 
-    Loss = Samplesloss_octree("sinkhorn", p=p, blur=blur, scaling=0.7, truncate=2, backend="multiscale", potentials=False)#, reach=1)
+    Loss = Samplesloss_octree("sinkhorn", p=p, blur=blur, scaling=0.7, truncate=5, backend="multiscale", potentials=False)#, reach=1)
 
     emd = Loss(source, target)
     [grad_source] = torch.autograd.grad(emd, [source.points])
 
+    # todo is using clone() here the most efficient way?
     points = source.points.clone() - grad_source / source.weights[:, None]  # Apply the regularized Brenier map
 
     #source.points -= grad_source / source.weights[:, None]  # Apply the regularized Brenier map
@@ -422,6 +424,13 @@ def ot_octree_autodiff(source, target):
     end = time.time()   
     print("Registered shape in {:.3f}s.".format(end - start))
 
-    return points, torch.tensor(source.colors, dtype=torch.float32, device='cuda')
+    if True:
+        start = time.time()
+        kd = KDTree(target.points.detach().cpu().numpy())
+        d, i = kd.query(points.detach().cpu().numpy(), k=1, distance_upper_bound=0.3)
+        color = torch.tensor(target.colors[i], dtype=torch.float32, device='cuda')
+        end = time.time()   
+        print("KD color query in{:.3f}s.".format(end - start))
+    return points, color
 
 
