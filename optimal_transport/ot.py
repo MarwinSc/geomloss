@@ -431,6 +431,10 @@ def ot_octree_autodiff(source, target):
         color = torch.tensor(target.colors[i], dtype=torch.float32, device='cuda')
         end = time.time()   
         print("KD color query in {:.3f}s.".format(end - start))
+
+    # todo should be target but looks better this way, doesn't acurately represent the assignment though
+    points = source.revoke_normalization(points)
+
     return points, color
 
 

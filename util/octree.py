@@ -17,17 +17,18 @@ class Octree:
         self.non_empty_leaf_count = 0
         self.knot_count = 0
         self.point_count = len(points)
+        self.normalize = normalize
 
         self.requires_grad = autograd
 
         self.colors = colors
 
-        if normalize:
-            min_vals = points.min(axis=0)
-            max_vals = points.max(axis=0)
+        if self.normalize:
+            self.min_vals = points.min(axis=0)
+            self.max_vals = points.max(axis=0)
 
             # Normalize the coordinates
-            points = (points - min_vals) / (max_vals - min_vals)
+            points = (points - self.min_vals) / (self.max_vals - self.min_vals)
 
         timer = Timer("Octree Creation:")
         bounds = np.array([[np.min(points[:, 0]) - 0.01, np.min(points[:, 1]) - 0.01, np.min(points[:, 2]) - 0.01],
@@ -86,6 +87,12 @@ class Octree:
         
         return self.hierarchy, self.bounds, self.metadata, self.points, self.colors, self.weights
 
+    def revoke_normalization(self, points):
+        if self.normalize:
+            min_vals = torch.tensor(self.min_vals, dtype=torch.float32, device='cuda')
+            max_vals = torch.tensor(self.max_vals, dtype=torch.float32, device='cuda')
+            return points * (max_vals - min_vals) + min_vals
+        return points
 
 class Node:
     def __init__(self, bounds, nodeindex, level, octree):

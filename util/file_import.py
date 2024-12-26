@@ -15,7 +15,7 @@ from util.timer import Timer
 
 log = logging.getLogger(__name__)
 
-def read(filename, mean):
+def read(filename, mean, octree_node_size=1000, normalize_data=True):
 
     timer = Timer(f"Import {filename}")
 
@@ -123,7 +123,7 @@ def read(filename, mean):
     
     timer.toc()
 
-    oct = octree.Octree(normalized_points, 1000, colors=colors, autograd=True)
+    oct = octree.Octree(normalized_points, octree_node_size, colors=colors, normalize=normalize_data, autograd=True)
 
     return oct, mean
 
