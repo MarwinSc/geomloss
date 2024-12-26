@@ -154,6 +154,7 @@ class Renderer(OrbitDragCameraWindow):
 
         self.camera.projection.update(near=0.1, far=1000.0)
         self.camera.mouse_sensitivity = 0.75
+        self.camera.zoom_sensitivity = 0.33
         self.camera.zoom = 2.5
 
         # imgui variables 

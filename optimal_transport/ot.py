@@ -430,7 +430,7 @@ def ot_octree_autodiff(source, target):
         d, i = kd.query(points.detach().cpu().numpy(), k=1, distance_upper_bound=0.3)
         color = torch.tensor(target.colors[i], dtype=torch.float32, device='cuda')
         end = time.time()   
-        print("KD color query in{:.3f}s.".format(end - start))
+        print("KD color query in {:.3f}s.".format(end - start))
     return points, color
 
 

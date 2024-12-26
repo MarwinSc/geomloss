@@ -2,7 +2,9 @@ import moderngl_window as mglw
 from render.camera import KeyboardCamera, OrbitCamera
 import imgui
 from moderngl_window.integrations.imgui import ModernglWindowRenderer
-from pyrr import Vector3, Matrix44, vector, vector3
+from pyrr import Vector3, Vector4, Matrix44, vector, vector3, vector4
+
+import math
 
 class CameraWindow(mglw.WindowConfig):
     """Base class with built in 3D camera support"""
@@ -167,10 +169,12 @@ class OrbitDragCameraWindow(mglw.WindowConfig):
             if self.wnd._mouse_buttons.left:
                 self.camera.rot_state(dx, dy)
             if self.wnd._mouse_buttons.middle:
-                self.camera.position += 0.01 * ((self.camera.right * dx) + (self.camera.up * dy))
-                self.camera.target += 0.01 * ((self.camera.right * dx) + (self.camera.up * dy))
-                #self.camera.position += 0.01 * ((Vector3([1.0, 0.0, 0.0]) * dx) + (Vector3([0.0, 1.0, 0.0]) * dy))
-                #self.camera.target += 0.01 * ((Vector3([1.0, 0.0, 0.0]) * dx) + (Vector3([0.0, 1.0, 0.0]) * dy))
+                # in camera view space
+                right, _ = Vector3.from_vector4(self.camera.matrix @ Vector4.from_vector3(self.camera.right, 1.0))
+                up, _ = Vector3.from_vector4(self.camera.matrix @ Vector4.from_vector3(self.camera.up, 1.0))
+                # todo hardcoded speed cap
+                self.camera.position += self.camera.zoom_sensitivity * math.log(min(self.camera.radius, 0.01) + 1) * ((right * dx) + (up * dy))
+                self.camera.target += self.camera.zoom_sensitivity * math.log(min(self.camera.radius, 0.01) + 1) * ((right * dx) + (up * dy))
 
     def mouse_scroll_event(self, x_offset, y_offset):
         self.camera.zoom_state(y_offset)

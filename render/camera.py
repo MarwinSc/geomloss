@@ -587,8 +587,8 @@ class OrbitCamera(Camera):
 
     def zoom_state(self, y_offset: float) -> None:
         # allow zooming in/out
-        self.radius -= y_offset * self._zoom_sensitivity
-        self.radius = max(1.0, self.radius)
+        self.radius -= y_offset * self._zoom_sensitivity * np.log(self.radius + 1)
+        self.radius = max(0.001, self.radius)
 
     def my_create_look_at(self, eye, target, up, dtype=None):
         """Creates a look at matrix according to OpenGL standards.
