@@ -17,113 +17,10 @@ import pathlib
 
 from scene.ensemble import Ensemble
 
-compute_shader_code = """
-    #version 460
-    #define GROUP_SIZE %COMPUTE_SIZE%
-
-    layout(local_size_x=GROUP_SIZE) in;
-
-    //uniform float time;
-    uniform float transition_state;
-    uniform float color_state;
-    //uniform float max_distance;
-    uniform bool color_distance;
-
-    struct Point{
-        vec4 pos;
-        vec4 col;
-    };
-
-    struct Assignment{
-        vec4 pos;  // w is the distance
-        vec4 col;
-    };
-
-    layout(std430, binding=0) buffer points_in{
-        Point points[];
-    } In;
-    layout(std430, binding=1) buffer points_out{
-        Point points[];
-    } Out;
-    layout(std430, binding=2) buffer assignment{
-        Assignment assignments[];
-    } Ass;
-
-    void main()
-    {
-        int x = int(gl_GlobalInvocationID);
-        if(In.points.length() <= x){
-            return;
-        }
-
-        Point in_point = In.points[x];
-        vec4 p = in_point.pos.xyzw;
-
-        vec3 target_p = Ass.assignments[x].pos.xyz;
-        p.xyz = p.xyz * transition_state + target_p.xyz * (1 - transition_state);
-
-        Point out_point;
-        out_point.pos.xyz = p.xyz;
-        out_point.pos.w = in_point.pos.w;
-
-        if(color_distance){
-            //float d = distance(p.xyz, target_p.xyz);
-            //float interp = ((1 - (d / Ass.assignments[x].pos.w)) * (Ass.assignments[x].pos.w / max_distance));
-            float interp = Ass.assignments[x].pos.w;
-
-            //vec4 c = in_point.col.xyzw;
-            out_point.col.xyzw = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
-        }else{
-            out_point.col.xyzw = in_point.col.xyzw * color_state + Ass.assignments[x].col.xyzw * (1 - color_state);
-            //out_point.col.xyzw = in_point.col.xyzw;
-        }
-        Out.points[x] = out_point;
-    }
-    """
-
-vertex_shader_code = """
-    #version 460
-
-    in vec4 in_position;
-    in vec4 in_color;
-
-    uniform mat4 projection;
-    uniform mat4 modelview;
-    uniform float point_size;
-    //uniform float time;
-
-    out vec4 color;
-
-    void main() {
-        gl_Position = projection * modelview * in_position;
-        vec4 position_camera_coord = modelview * in_position;
-        // Set the point size
-        //gl_PointSize = 25 - gl_Position.z + sin((time + gl_VertexID) * 7.0) * 10.0;
-        gl_PointSize = point_size;
-
-        // Calculate a random color based on the vertex index
-        //color = vec3(mod(gl_VertexID * 432.43, 1.0), mod(gl_VertexID * 6654.32, 1.0), mod(gl_VertexID  * 6544.11, 1.0));
-        color = in_color;
-    }
-    """
-
-fragment_shader_code = """
-    #version 460
-
-    in vec4 color;
-    out vec4 outColor;
-
-    void main() {
-        // Calculate the distance from the center of the point
-        // gl_PointCoord is available when redering points. It's basically an uv coordinate.
-        //float dist = step(length(gl_PointCoord.xy - vec2(0.5)), 0.5);
-
-        // .. an use to render a circle!
-        //outColor = vec4(dist * color, dist);
-
-        outColor = color;
-    }
-    """
+def load_shader(shader_path):
+    """Reads the shader code from a file."""
+    with open(shader_path, 'r') as file:
+        return file.read()
 
 class Renderer(OrbitDragCameraWindow):
 
@@ -141,7 +38,10 @@ class Renderer(OrbitDragCameraWindow):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self.WORKGOUP_SIZE = 256
+        # vertex and fragment shader
+
+        vertex_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "vertex_shader.glsl")
+        fragment_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "fragment_shader.glsl")
 
         self.prog = self.ctx.program(
             vertex_shader=vertex_shader_code,
@@ -149,6 +49,8 @@ class Renderer(OrbitDragCameraWindow):
         )
 
         # Load compute shader
+        self.WORKGOUP_SIZE = 256
+        compute_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "compute_shader.glsl")
         compute_shader_code_parsed = compute_shader_code.replace("%COMPUTE_SIZE%", str(self.WORKGOUP_SIZE))
         self.compute_shader = self.ctx.compute_shader(compute_shader_code_parsed)
 
@@ -186,13 +88,7 @@ class Renderer(OrbitDragCameraWindow):
                 self.compute_buffer_a = self.ctx.buffer(source_pos)
                 self.assignment_buffer = self.ctx.buffer(target_pos)
 
-                #####
-
                 self.current_assignment += 1
-
-                # todo time this
-                #self.compute_buffer_a = self.ctx.buffer(self.points[self.current_assignment + 1])
-                #self.assignment_buffer = self.ctx.buffer(self.assignments[self.current_assignment])
 
                 self.compute_buffer_a, self.compute_buffer_b = self.compute_buffer_b, self.compute_buffer_a
                 self.points_a, self.points_b = self.points_b, self.points_a
@@ -261,8 +157,7 @@ class Renderer(OrbitDragCameraWindow):
 
         run_assign = imgui.button("Build Correspondence")
         if run_assign:
-            #self.run_ot()
-            self.run_ot_new()
+            self.run_ot()
             #self.load_data()
 
         load_debug = imgui.button("Load DEBUG")
@@ -307,98 +202,19 @@ class Renderer(OrbitDragCameraWindow):
                 filelist = json.load(infile)
                 self.generic_run(filelist)
 
-    def run_ot_new(self):
-        filelist_path = util.create_tmp_dir() / "filelist.json"
-        if filelist_path.is_file:
-            with open(filelist_path, 'r') as infile:
-                filelist = json.load(infile)
-
-                self.number_of_files = len(filelist['files'])
-
-                self.ens = Ensemble(filelist)
-                self.ens.build()
-                self.ens.ot_sequential()
-                source_pos, target_pos = self.ens.compute_data
-
-                # Create the two buffers the compute shader will write and read from
-                self.current_assignment = 0
-                self.compute_buffer_a = self.ctx.buffer(source_pos)
-                self.compute_buffer_b = self.ctx.buffer(source_pos)
-                self.assignment_buffer = self.ctx.buffer(target_pos)
-
-                # Prepare vertex arrays to drawing points using the compute shader buffers are input
-                # We use 4x4 (padding format)
-                self.points_a = self.ctx.vertex_array(
-                    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
-                )
-                self.points_b = self.ctx.vertex_array(
-                    self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
-                )
-
-                self.num_points = self.ens.get_num_points()
-                self.loaded = True
-                
-    
     def generic_run(self, filelist):
-        octrees = []
-        mean = None
-        for file in filelist['files']:
-            if mean is None:
-                octree, mean = file_import.read(file, None)
-            else:
-                octree, _ = file_import.read(file, mean)
-
-            octrees.append(octree)
-
-        correspondences, matching_colors = otot(octrees)
-        #correspondences = naive_direct_run(octrees)
-        #correspondences, matching_colors = direct_run_(octrees)
-        #correspondences = barycenter_run(octrees)
-        #correspondences = run_with_labels(octrees)
-        
         self.number_of_files = len(filelist['files'])
 
-        # perpare compute data e.g. positions and colors
-        for i, oct in enumerate(octrees):
-
-            positions = oct.revoke_normalization(oct.points).detach().cpu().numpy()
-            colors = oct.colors
-
-            self.num_points.append(positions.shape[0])
-
-            # swap columns due to blender
-            positions[:,[1, 2]] = positions[:,[2, 1]]
-            positions = np.c_[positions, np.ones(positions.shape[0])]
-
-            compute_data = np.empty((positions.shape[0] + colors.shape[0], 4), dtype="f4")
-            compute_data[0::2,:] = positions
-            compute_data[1::2,:] = colors
-
-            self.points.append(compute_data)
-
-        # prepare transition data e.g. assigned positions and colors
-        for i, corres in enumerate(correspondences):
-            assignment_positions = corres[:]
-            # swap columns due to blender
-            assignment_positions[:,[1, 2]] = assignment_positions[:,[2, 1]]
-            # todo 
-            #positions = octrees[i].points
-            #positions[:,[1, 2]] = positions[:,[2, 1]]
-            assignment_distances = np.linalg.norm(assignment_positions - positions[:, :3], axis=1)
-            # todo
-            self.max_distance = np.max(assignment_distances)
-            assignment = np.empty((len(assignment_positions) * 2, 4), dtype="f4")
-            assignment[0::2,:] = np.c_[assignment_positions, assignment_distances]
-            assignment[1::2,:] = matching_colors[i]
-            #assignment[1::2,:] = colors
-            assignment = assignment.astype("f4")
-            self.assignments.append(assignment)
+        self.ens = Ensemble(filelist)
+        self.ens.build()
+        self.ens.ot_sequential()
+        source_pos, target_pos = self.ens.compute_data
 
         # Create the two buffers the compute shader will write and read from
         self.current_assignment = 0
-        self.compute_buffer_a = self.ctx.buffer(self.points[self.current_assignment + 1])
-        self.compute_buffer_b = self.ctx.buffer(self.points[self.current_assignment + 1])
-        self.assignment_buffer = self.ctx.buffer(self.assignments[self.current_assignment])
+        self.compute_buffer_a = self.ctx.buffer(source_pos)
+        self.compute_buffer_b = self.ctx.buffer(source_pos)
+        self.assignment_buffer = self.ctx.buffer(target_pos)
 
         # Prepare vertex arrays to drawing points using the compute shader buffers are input
         # We use 4x4 (padding format)
@@ -409,6 +225,7 @@ class Renderer(OrbitDragCameraWindow):
             self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
         )
 
+        self.num_points = self.ens.get_num_points()
         self.loaded = True
 
 if __name__ == '__main__':
