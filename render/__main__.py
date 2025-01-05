@@ -5,7 +5,7 @@ from pyrr import Matrix44
 import meshio
 import numpy as np
 import imgui
-import util.file_import as file_import
+import scene.file_import as file_import
 from optimal_transport.__main__ import main as ot_main
 from optimal_transport.__main__ import direct_run, naive_direct_run, direct_run_, barycenter_run, run_with_labels, otot
 from tkinter.filedialog import askopenfilenames
@@ -14,6 +14,8 @@ import subprocess
 import json 
 import os
 import pathlib
+
+from scene.ensemble import Ensemble
 
 compute_shader_code = """
     #version 460
@@ -24,7 +26,7 @@ compute_shader_code = """
     //uniform float time;
     uniform float transition_state;
     uniform float color_state;
-    uniform float max_distance;
+    //uniform float max_distance;
     uniform bool color_distance;
 
     struct Point{
@@ -65,8 +67,9 @@ compute_shader_code = """
         out_point.pos.w = in_point.pos.w;
 
         if(color_distance){
-            float d = distance(p.xyz, target_p.xyz);
-            float interp = ((1 - (d / Ass.assignments[x].pos.w)) * (Ass.assignments[x].pos.w / max_distance));
+            //float d = distance(p.xyz, target_p.xyz);
+            //float interp = ((1 - (d / Ass.assignments[x].pos.w)) * (Ass.assignments[x].pos.w / max_distance));
+            float interp = Ass.assignments[x].pos.w;
 
             //vec4 c = in_point.col.xyzw;
             out_point.col.xyzw = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
@@ -123,9 +126,7 @@ fragment_shader_code = """
     """
 
 class Renderer(OrbitDragCameraWindow):
-    """
-    Example showing how to use a OrbitCamera
-    """
+
     aspect_ratio = None
     gl_version = (4, 6)
     resource_dir = Path(__file__).parents[3].resolve()
@@ -135,10 +136,12 @@ class Renderer(OrbitDragCameraWindow):
     points = []
     num_points = []
 
+    ens = None
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self.WORKGOUP_SIZE = 128
+        self.WORKGOUP_SIZE = 256
 
         self.prog = self.ctx.program(
             vertex_shader=vertex_shader_code,
@@ -175,11 +178,21 @@ class Renderer(OrbitDragCameraWindow):
             
             # load next model
             if self.transition_state > (self.current_assignment + 1) * (1/(self.number_of_files - 1)):
+
+                self.ens.increment()
+
+                source_pos, target_pos = self.ens.compute_data
+
+                self.compute_buffer_a = self.ctx.buffer(source_pos)
+                self.assignment_buffer = self.ctx.buffer(target_pos)
+
+                #####
+
                 self.current_assignment += 1
 
                 # todo time this
-                self.compute_buffer_a = self.ctx.buffer(self.points[self.current_assignment + 1])
-                self.assignment_buffer = self.ctx.buffer(self.assignments[self.current_assignment])
+                #self.compute_buffer_a = self.ctx.buffer(self.points[self.current_assignment + 1])
+                #self.assignment_buffer = self.ctx.buffer(self.assignments[self.current_assignment])
 
                 self.compute_buffer_a, self.compute_buffer_b = self.compute_buffer_b, self.compute_buffer_a
                 self.points_a, self.points_b = self.points_b, self.points_a
@@ -199,7 +212,7 @@ class Renderer(OrbitDragCameraWindow):
             #    #pass
             #    #TODO
             #    print(f"exception: {e}")
-            self.compute_shader['max_distance'] = self.max_distance
+            #self.compute_shader['max_distance'] = self.max_distance
             self.compute_shader['color_distance'] = self.color_distance
             self.compute_shader['transition_state'] = self.transition_state * (self.number_of_files - 1) - self.current_assignment
             self.compute_shader['color_state'] = self.color_state * (self.number_of_files - 1) - self.current_assignment
@@ -248,7 +261,8 @@ class Renderer(OrbitDragCameraWindow):
 
         run_assign = imgui.button("Build Correspondence")
         if run_assign:
-            self.run_ot()
+            #self.run_ot()
+            self.run_ot_new()
             #self.load_data()
 
         load_debug = imgui.button("Load DEBUG")
@@ -292,6 +306,37 @@ class Renderer(OrbitDragCameraWindow):
             with open(filelist_path, 'r') as infile:
                 filelist = json.load(infile)
                 self.generic_run(filelist)
+
+    def run_ot_new(self):
+        filelist_path = util.create_tmp_dir() / "filelist.json"
+        if filelist_path.is_file:
+            with open(filelist_path, 'r') as infile:
+                filelist = json.load(infile)
+
+                self.number_of_files = len(filelist['files'])
+
+                self.ens = Ensemble(filelist)
+                self.ens.build()
+                self.ens.ot_sequential()
+                source_pos, target_pos = self.ens.compute_data
+
+                # Create the two buffers the compute shader will write and read from
+                self.current_assignment = 0
+                self.compute_buffer_a = self.ctx.buffer(source_pos)
+                self.compute_buffer_b = self.ctx.buffer(source_pos)
+                self.assignment_buffer = self.ctx.buffer(target_pos)
+
+                # Prepare vertex arrays to drawing points using the compute shader buffers are input
+                # We use 4x4 (padding format)
+                self.points_a = self.ctx.vertex_array(
+                    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
+                )
+                self.points_b = self.ctx.vertex_array(
+                    self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
+                )
+
+                self.num_points = self.ens.get_num_points()
+                self.loaded = True
                 
     
     def generic_run(self, filelist):
@@ -356,7 +401,7 @@ class Renderer(OrbitDragCameraWindow):
         self.assignment_buffer = self.ctx.buffer(self.assignments[self.current_assignment])
 
         # Prepare vertex arrays to drawing points using the compute shader buffers are input
-        # We use 4x4 (padding format) to skip the velocity data (not needed for drawing the balls)
+        # We use 4x4 (padding format)
         self.points_a = self.ctx.vertex_array(
             self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
         )
@@ -365,7 +410,6 @@ class Renderer(OrbitDragCameraWindow):
         )
 
         self.loaded = True
-
 
 if __name__ == '__main__':
     Renderer.run()

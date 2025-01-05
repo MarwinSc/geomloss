@@ -10,12 +10,12 @@ import SimpleITK as sitk
 from skimage.measure import marching_cubes
 import robust_laplacian
 import point_cloud_utils as pcu
-import util.octree as octree
+import scene.octree as octree
 from util.timer import Timer
 
 log = logging.getLogger(__name__)
 
-def read(filename, mean, octree_node_size=1000, normalize_data=True):
+def read(filename, octree_node_size=1000, normalize_data=True):
 
     timer = Timer(f"Import {filename}")
 
@@ -91,10 +91,9 @@ def read(filename, mean, octree_node_size=1000, normalize_data=True):
 
     print(f"Number of Points: {points.shape[0]}")
     
-    if mean is None:
-        mean = np.mean(points, axis=0)
-    points -= mean
-    normalized_points = points/np.max(np.abs(points))
+    timer.toc()
+
+    return points, colors
     
     #timer_laplacian = Timer("laplacian")
     #L, M = robust_laplacian.point_cloud_laplacian(normalized_points)
@@ -120,12 +119,6 @@ def read(filename, mean, octree_node_size=1000, normalize_data=True):
     #std = (weights.view(-1) * (locations ** 2).sum(dim=1).view(-1)).sum().sqrt()
     #locations /= std
     #normalized_points = locations.detach().cpu().numpy()
-    
-    timer.toc()
-
-    oct = octree.Octree(normalized_points, octree_node_size, colors=colors, normalize=normalize_data, autograd=True)
-
-    return oct, mean
 
 
 def load_assignment(filepath):
