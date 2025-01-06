@@ -11,23 +11,18 @@ uniform float color_state;
 uniform bool color_distance;
 
 struct Point{
-    vec4 pos;
+    vec4 pos; // for the assignment w is the distance
     vec4 col;
 };
 
-struct Assignment{
-    vec4 pos;  // w is the distance
-    vec4 col;
-};
-
-layout(std430, binding=0) buffer points_in{
+layout(std430, binding=0) buffer source{
     Point points[];
 } In;
 layout(std430, binding=1) buffer points_out{
     Point points[];
 } Out;
-layout(std430, binding=2) buffer assignment{
-    Assignment assignments[];
+layout(std430, binding=2) buffer target{
+     Point points[];
 } Ass;
 
 void main()
@@ -40,7 +35,7 @@ void main()
     Point in_point = In.points[x];
     vec4 p = in_point.pos.xyzw;
 
-    vec3 target_p = Ass.assignments[x].pos.xyz;
+    vec3 target_p = Ass.points[x].pos.xyz;
     p.xyz = p.xyz * transition_state + target_p.xyz * (1 - transition_state);
 
     Point out_point;
@@ -50,12 +45,14 @@ void main()
     if(color_distance){
         //float d = distance(p.xyz, target_p.xyz);
         //float interp = ((1 - (d / Ass.assignments[x].pos.w)) * (Ass.assignments[x].pos.w / max_distance));
-        float interp = Ass.assignments[x].pos.w;
+        float interp = Ass.points[x].pos.w;
 
         //vec4 c = in_point.col.xyzw;
         out_point.col.xyzw = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
+
+        out_point.col.w = interp;
     }else{
-        out_point.col.xyzw = in_point.col.xyzw * color_state + Ass.assignments[x].col.xyzw * (1 - color_state);
+        out_point.col.xyzw = in_point.col.xyzw * color_state + Ass.points[x].col.xyzw * (1 - color_state);
         //out_point.col.xyzw = in_point.col.xyzw;
     }
     Out.points[x] = out_point;

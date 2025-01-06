@@ -1025,11 +1025,7 @@ def sinkhorn_octree(
             print(f"Jumps: {jumps}")
 
     else:
-        #jumps = [3,6,15,33,40]
-        #jumps = [3,6,15,33,len(eps_list) - 2]
-
-        jumps = [6, 13, 19, 26, 33, 39, 46, 53]
-
+        jumps = np.linspace(3, len(eps_list) - 7, num = len(c_x) - 1, dtype=int)
 
 
     #if verbose:

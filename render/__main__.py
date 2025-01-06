@@ -66,6 +66,7 @@ class Renderer(OrbitDragCameraWindow):
         self.transition_state = 0.0
         self.color_state = 0.0
         self.color_distance = False
+        self.varying_size = False
         self.lock_states = True
         self.point_size = 3.0
 
@@ -84,23 +85,19 @@ class Renderer(OrbitDragCameraWindow):
                 self.ens.increment()
 
                 source_pos, target_pos = self.ens.compute_data
-
-                self.compute_buffer_a = self.ctx.buffer(source_pos)
-                self.assignment_buffer = self.ctx.buffer(target_pos)
+                self.source_buffer = self.target_buffer
+                self.target_buffer = self.ctx.buffer(target_pos)
 
                 self.current_assignment += 1
-
-                self.compute_buffer_a, self.compute_buffer_b = self.compute_buffer_b, self.compute_buffer_a
-                self.points_a, self.points_b = self.points_b, self.points_a
 
             if self.lock_states:
                 if self.transition_state != self.color_state:
                     self.color_state = self.transition_state
 
-            # Calculate the next position of the balls with compute shader
-            self.compute_buffer_a.bind_to_storage_buffer(0)
+            # Calculate the next position of the points with compute shader
+            self.source_buffer.bind_to_storage_buffer(0)
             self.compute_buffer_b.bind_to_storage_buffer(1)
-            self.assignment_buffer.bind_to_storage_buffer(2)
+            self.target_buffer.bind_to_storage_buffer(2)
 
             #try:
             #    self.compute_shader['time'] = time
@@ -119,7 +116,11 @@ class Renderer(OrbitDragCameraWindow):
 
             self.prog['point_size'] = self.point_size
             #self.prog['time'].value = time
+            self.prog['varying_size'] = self.varying_size
             self.points_b.render(mode=self.ctx.POINTS)
+
+            self.compute_buffer_a, self.compute_buffer_b = self.compute_buffer_b, self.compute_buffer_a
+            self.points_a, self.points_b = self.points_b, self.points_a
 
         self.render_ui()
     
@@ -164,11 +165,15 @@ class Renderer(OrbitDragCameraWindow):
         if load_debug:
             self.run_debug()
 
-        _, self.color_distance = imgui.checkbox("Color Distance", self.color_distance)
+        renderer, _ = imgui.collapsing_header("Renderer", True)
+        if renderer:
+            _, self.point_size = imgui.slider_float("", self.point_size, 1.0, 30.0)
 
-        _, self.point_size = imgui.slider_float("", self.point_size, 1.0, 30.0)
-
-
+        comparison, _ = imgui.collapsing_header("Comparison", True)
+        if comparison:
+            _, self.color_distance = imgui.checkbox("Color Distance", self.color_distance)
+            _, self.varying_size = imgui.checkbox("Varying Size", self.varying_size)
+        
         imgui.end()
 
         ##### slider
@@ -214,7 +219,8 @@ class Renderer(OrbitDragCameraWindow):
         self.current_assignment = 0
         self.compute_buffer_a = self.ctx.buffer(source_pos)
         self.compute_buffer_b = self.ctx.buffer(source_pos)
-        self.assignment_buffer = self.ctx.buffer(target_pos)
+        self.source_buffer = self.ctx.buffer(source_pos)
+        self.target_buffer = self.ctx.buffer(target_pos)
 
         # Prepare vertex arrays to drawing points using the compute shader buffers are input
         # We use 4x4 (padding format)
