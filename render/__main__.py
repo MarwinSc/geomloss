@@ -83,10 +83,22 @@ class Renderer(OrbitDragCameraWindow):
             if self.transition_state > (self.current_assignment + 1) * (1/(self.number_of_files - 1)):
 
                 self.ens.increment()
-
+                # get the data
                 source_pos, target_pos = self.ens.compute_data
-                self.source_buffer = self.target_buffer
+                # assign the old target as the new source
+                self.source_buffer = self.ctx.buffer(source_pos)
+                # assign the new target
                 self.target_buffer = self.ctx.buffer(target_pos)
+
+                self.compute_buffer_a = self.ctx.buffer(source_pos)
+                self.compute_buffer_b = self.ctx.buffer(source_pos)
+
+                self.points_a = self.ctx.vertex_array(
+                    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
+                )
+                self.points_b = self.ctx.vertex_array(
+                    self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
+                )
 
                 self.current_assignment += 1
 
@@ -94,7 +106,7 @@ class Renderer(OrbitDragCameraWindow):
                 if self.transition_state != self.color_state:
                     self.color_state = self.transition_state
 
-            # Calculate the next position of the points with compute shader
+            # Bind the appropriate buffers to the compute shader
             self.source_buffer.bind_to_storage_buffer(0)
             self.compute_buffer_b.bind_to_storage_buffer(1)
             self.target_buffer.bind_to_storage_buffer(2)
@@ -119,6 +131,7 @@ class Renderer(OrbitDragCameraWindow):
             self.prog['varying_size'] = self.varying_size
             self.points_b.render(mode=self.ctx.POINTS)
 
+            # switch buffers for rendering 
             self.compute_buffer_a, self.compute_buffer_b = self.compute_buffer_b, self.compute_buffer_a
             self.points_a, self.points_b = self.points_b, self.points_a
 
@@ -212,7 +225,8 @@ class Renderer(OrbitDragCameraWindow):
 
         self.ens = Ensemble(filelist)
         self.ens.build()
-        self.ens.ot_sequential()
+        #self.ens.ot_sequential()
+        self.ens.ot_reference()
         source_pos, target_pos = self.ens.compute_data
 
         # Create the two buffers the compute shader will write and read from

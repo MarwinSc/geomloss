@@ -32,27 +32,24 @@ void main()
         return;
     }
 
-    Point in_point = In.points[x];
-    vec4 p = in_point.pos.xyzw;
-
-    vec3 target_p = Ass.points[x].pos.xyz;
-    p.xyz = p.xyz * transition_state + target_p.xyz * (1 - transition_state);
-
+    Point src_pt = In.points[x];
+    vec4 src_pos = src_pt.pos.xyzw;
+    vec3 tar_pos = Ass.points[x].pos.xyz;
+ 
     Point out_point;
-    out_point.pos.xyz = p.xyz;
-    out_point.pos.w = in_point.pos.w;
+    out_point.pos.xyz = src_pos.xyz * (transition_state) + tar_pos.xyz * (1 - transition_state);
+    out_point.pos.w = src_pt.pos.w;
 
     if(color_distance){
         //float d = distance(p.xyz, target_p.xyz);
         //float interp = ((1 - (d / Ass.assignments[x].pos.w)) * (Ass.assignments[x].pos.w / max_distance));
         float interp = Ass.points[x].pos.w;
 
-        //vec4 c = in_point.col.xyzw;
         out_point.col.xyzw = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
 
         out_point.col.w = interp;
     }else{
-        out_point.col.xyzw = in_point.col.xyzw * color_state + Ass.points[x].col.xyzw * (1 - color_state);
+        out_point.col.xyzw = src_pt.col.xyzw * color_state + Ass.points[x].col.xyzw * (1 - color_state);
         //out_point.col.xyzw = in_point.col.xyzw;
     }
     Out.points[x] = out_point;

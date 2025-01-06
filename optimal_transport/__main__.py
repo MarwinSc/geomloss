@@ -766,7 +766,7 @@ def direct_run_color(octrees, level=1):
 
 
 def otot(octrees):
-
+    # allow to allocate additional memory
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     
     numpy = lambda x: x.detach().cpu().numpy()
@@ -774,44 +774,31 @@ def otot(octrees):
     correspondences_list = []
     colors_list = []
     for i in range(1, len(octrees)): 
-        correspondence, colors_matching = ot.ot_octree_autodiff(octrees[i], octrees[i-1]) 
+        correspondence, colors_matching, _ = ot.ot_octree_autodiff(octrees[i], octrees[i-1]) 
         correspondences_list.append(numpy(correspondence))
         colors_list.append(numpy(colors_matching))
     return correspondences_list, colors_list
 
-    use_cuda = torch.cuda.is_available()
+
+def ot_with_reference(reference_oct, octrees):
+    # allow to allocate additional memory
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    
     numpy = lambda x: x.detach().cpu().numpy()
 
-    timer = Timer("Optimal Transport")
-
     correspondences_list = []
-    for i in range(1, len(octrees)):  
-        log.info(f"Octree: {i}")
-
-        # source
-
-        hierarchy_s, bounds_s, metadata_s, points_s, colors_s = octrees[i - 1].to_list()
-        # todo support mor than two again
-        if len(correspondences_list) == 0:
-            reference = get_data_direct(points_s, 'position', dbg=False)
-        else:
-            reference = (reference[0], torch.tensor(correspondences_list[-1], dtype=torch.float32, device='cuda'))
-
-        # target
-
-        hierarchy_t, bounds_t, metadata_t, points_t, colors_t = octrees[i].to_list()
-        target = get_data_direct(points_t, 'position', dbg=False)
-
-        matching = ot.ot_octree(reference, target)
-        centroids_s = numpy(reference[1])
-        centroids_t = numpy(target[1])
-
-        correspondence_outer = numpy(matching)
-        correspondences_list.append(correspondence_outer)
-
-    timer.toc()
-    
-    return correspondences_list
+    colors_list = []
+    emd_list = []
+    for i in range(len(octrees)): 
+        correspondence, colors_matching, emd = ot.ot_octree_autodiff(reference_oct, octrees[i]) 
+        correspondences_list.append(numpy(correspondence))
+        colors_list.append(numpy(colors_matching))
+        emd_list.append(emd)
+    # sort the lists based on the emd
+    sorting = np.argsort(emd_list)
+    correspondences_list = [correspondences_list[i] for i in sorting]
+    colors_list = [colors_list[i] for i in sorting]
+    return correspondences_list, colors_list
 
 if __name__ == "__main__":
     main()
