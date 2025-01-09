@@ -37,7 +37,7 @@ void main()
     vec3 tar_pos = Ass.points[x].pos.xyz;
  
     Point out_point;
-    out_point.pos.xyz = src_pos.xyz * (transition_state) + tar_pos.xyz * (1 - transition_state);
+    out_point.pos.xyz = src_pos.xyz * (1 - transition_state) + tar_pos.xyz * (transition_state);
     out_point.pos.w = src_pt.pos.w;
 
     if(color_distance){
@@ -49,7 +49,7 @@ void main()
 
         out_point.col.w = interp;
     }else{
-        out_point.col.xyzw = src_pt.col.xyzw * color_state + Ass.points[x].col.xyzw * (1 - color_state);
+        out_point.col.xyzw = src_pt.col.xyzw * (1 - color_state) + Ass.points[x].col.xyzw * (color_state);
         //out_point.col.xyzw = in_point.col.xyzw;
     }
     Out.points[x] = out_point;

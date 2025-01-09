@@ -31,6 +31,15 @@ class Ensemble:
         """
         if self.idx < len(self.filelist['files']) - 1:
             self.idx += 1
+        return self.compute_data
+
+    def decrement(self):
+        """
+        Decrease the index of the currently displayed model.
+        """
+        if self.idx > 0:
+            self.idx -= 1
+        return self.compute_data
 
     def get_num_points(self):
         """
@@ -43,10 +52,9 @@ class Ensemble:
         Create a model for each file in the filelist.
         """
         # mean is used to normalize all point clouds to the same origin and scale
-        mean = None
         for file in self.filelist['files']:
             model = Model(file, self.conf)
-            mean = model.build(mean)
+            model.build()
             self.models.append(model)
 
             self.num_points.append(model.num_points)
@@ -74,27 +82,25 @@ class Ensemble:
         Get the compute data as needed for the compute shader.
         """
         # current points
-
-        oct = self.models[0].octree
-
-        positions = oct.revoke_normalization(oct.points).detach().cpu().numpy()
-        colors = oct.colors
-
-        positions[:,[1, 2]] = positions[:,[2, 1]]
-        positions = np.c_[positions, np.ones(positions.shape[0])]
-
-        compute_data = np.empty((positions.shape[0] + colors.shape[0], 4), dtype="f4")
-        compute_data[0::2,:] = positions
-        compute_data[1::2,:] = colors
+        # if idx is zero, first assignment and the points are from the reference model
+        if self.idx == 0:
+            oct = self.models[0].octree
+            positions = oct.points.detach().cpu().numpy()
+            colors = oct.colors
+            positions = np.c_[positions, np.ones(positions.shape[0])]
+            compute_data = np.empty((positions.shape[0] + colors.shape[0], 4), dtype="f4")
+            compute_data[0::2,:] = positions
+            compute_data[1::2,:] = colors
+        # else we take the points from the first assignment 
+        else:
+            positions = self.correspondences[self.idx - 1]
+            compute_data = np.empty((len(positions) * 2, 4), dtype="f4")
+            compute_data[0::2,:] = np.c_[positions, np.ones(positions.shape[0])]
+            compute_data[1::2,:] = self.matching_colors[self.idx - 1]
+            compute_data = compute_data.astype("f4")
         
         # next points
-
         assignment_positions = self.correspondences[self.idx]
-        # swap columns due to blender
-        assignment_positions[:,[1, 2]] = assignment_positions[:,[2, 1]]
-        # todo 
-        #positions = octrees[i].points
-        #positions[:,[1, 2]] = positions[:,[2, 1]]
         assignment_distances = np.linalg.norm(assignment_positions - positions[:, :3], axis=1)
         # todo
         max_distance = np.max(assignment_distances)
@@ -103,7 +109,6 @@ class Ensemble:
         assignment = np.empty((len(assignment_positions) * 2, 4), dtype="f4")
         assignment[0::2,:] = np.c_[assignment_positions, assignment_distances]
         assignment[1::2,:] = self.matching_colors[self.idx]
-        #assignment[1::2,:] = colors
         assignment = assignment.astype("f4")
 
         return compute_data, assignment

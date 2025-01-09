@@ -87,9 +87,8 @@ class Renderer(OrbitDragCameraWindow):
             # load next model
             if self.transition_state > (self.current_assignment + 1) * (1/(self.number_of_files - 1)):
 
-                self.ens.increment()
                 # get the data
-                source_pos, target_pos = self.ens.compute_data
+                source_pos, target_pos = self.ens.increment()
                 # assign the old target as the new source
                 self.source_buffer = self.ctx.buffer(source_pos)
                 # assign the new target
@@ -106,6 +105,30 @@ class Renderer(OrbitDragCameraWindow):
                 )
 
                 self.current_assignment += 1
+
+            # load previous model
+            elif self.transition_state < (self.current_assignment) * (1/(self.number_of_files - 1)):
+
+                # get the data
+                source_pos, target_pos = self.ens.decrement()
+                # todo from here on  but the last line, a copy from above
+                # assign the old target as the new source
+                self.source_buffer = self.ctx.buffer(source_pos)
+                # assign the new target
+                self.target_buffer = self.ctx.buffer(target_pos)
+
+                self.compute_buffer_a = self.ctx.buffer(source_pos)
+                self.compute_buffer_b = self.ctx.buffer(source_pos)
+
+                self.points_a = self.ctx.vertex_array(
+                    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
+                )
+                self.points_b = self.ctx.vertex_array(
+                    self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
+                )
+
+                self.current_assignment -= 1
+
 
             if self.lock_states:
                 if self.transition_state != self.color_state:
@@ -126,7 +149,7 @@ class Renderer(OrbitDragCameraWindow):
             self.compute_shader['color_distance'] = self.color_distance
             self.compute_shader['transition_state'] = self.transition_state * (self.number_of_files - 1) - self.current_assignment
             self.compute_shader['color_state'] = self.color_state * (self.number_of_files - 1) - self.current_assignment
-            self.compute_shader.run(group_x = int(self.num_points[self.current_assignment + 1] / self.WORKGOUP_SIZE))
+            self.compute_shader.run(group_x = int(self.num_points[self.current_assignment] / self.WORKGOUP_SIZE))
 
             self.prog['projection'].write(self.camera.projection.matrix)
             self.prog['modelview'].write(self.camera.matrix)

@@ -14,18 +14,26 @@ class Model:
         self.octree = None
         self.kdtree = None
 
-    def build(self, mean=None):
+    def build(self):
         
         points, colors = file_import.read(self.file)
 
+        # swap columns due to blender
+        points[:,[1, 2]] = points[:,[2, 1]]
+
         self.num_points = points.shape[0]
 
-        # mean is used to normalize all point clouds to the same origin and scale
-        if mean is None:
-            mean = np.mean(points, axis=0)
-        points -= mean
-        normalized_points = points/np.max(np.abs(points))
+        # Step 1: Compute the bounding box
+        min_coords = points.min(axis=0)
+        max_coords = points.max(axis=0)
 
-        self.octree = Octree(normalized_points, self.conf["octree_node_size"], colors=colors, normalize=self.conf["normalize_data"], autograd=self.conf["autograd"])
+        # Step 2: Translate points to center at origin
+        midpoint = (min_coords + max_coords) / 2
+        points_centered = points - midpoint
 
-        return mean 
+        # Step 3: Normalize to range [0, 1]
+        scale = max(max_coords - min_coords)
+        points_normalized = points_centered / scale
+
+        self.octree = Octree(points_normalized, self.conf["octree_node_size"], colors=colors, autograd=self.conf["autograd"])
+    

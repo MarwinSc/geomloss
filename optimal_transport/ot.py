@@ -432,10 +432,6 @@ def ot_octree_autodiff(source, target, conf):
         end = time.time()   
         print("KD color query in {:.3f}s.".format(end - start))
 
-    # todo ?
-    # todo should be target but looks better this way, doesn't acurately represent the assignment though
-    points = target.revoke_normalization(points)
-
     return points, color, emd.detach().cpu().numpy()
 
 
