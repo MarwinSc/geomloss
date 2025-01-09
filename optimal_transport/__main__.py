@@ -780,7 +780,7 @@ def otot(octrees):
     return correspondences_list, colors_list
 
 
-def ot_with_reference(reference_oct, octrees):
+def ot_with_reference(reference_oct, octrees, conf):
     # allow to allocate additional memory
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     
@@ -790,7 +790,7 @@ def ot_with_reference(reference_oct, octrees):
     colors_list = []
     emd_list = []
     for i in range(len(octrees)): 
-        correspondence, colors_matching, emd = ot.ot_octree_autodiff(reference_oct, octrees[i]) 
+        correspondence, colors_matching, emd = ot.ot_octree_autodiff(reference_oct, octrees[i], conf) 
         correspondences_list.append(numpy(correspondence))
         colors_list.append(numpy(colors_matching))
         emd_list.append(emd)

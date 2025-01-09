@@ -68,7 +68,12 @@ class Renderer(OrbitDragCameraWindow):
         self.color_distance = False
         self.varying_size = False
         self.lock_states = True
+        ## Rendering
         self.point_size = 3.0
+        ## OT
+        self.ot_blur = 0.001
+        self.ot_scaling = 0.7
+        self.ot_trunctate = 5
 
 
     def render(self, time: float, frametime: float):
@@ -182,11 +187,17 @@ class Renderer(OrbitDragCameraWindow):
         if renderer:
             _, self.point_size = imgui.slider_float("", self.point_size, 1.0, 30.0)
 
+        optimal_transport, _ = imgui.collapsing_header("Optimal Transport", True)
+        if optimal_transport:
+            _, self.ot_blur = imgui.input_float("Blur", self.ot_blur)
+            _, self.ot_scaling = imgui.input_float("Scaling", self.ot_scaling)
+            _, self.ot_trunctate = imgui.input_float("Truncate", self.ot_trunctate)
+
         comparison, _ = imgui.collapsing_header("Comparison", True)
         if comparison:
             _, self.color_distance = imgui.checkbox("Color Distance", self.color_distance)
             _, self.varying_size = imgui.checkbox("Varying Size", self.varying_size)
-        
+
         imgui.end()
 
         ##### slider
@@ -226,7 +237,12 @@ class Renderer(OrbitDragCameraWindow):
         self.ens = Ensemble(filelist)
         self.ens.build()
         #self.ens.ot_sequential()
-        self.ens.ot_reference()
+        conf = {
+            "blur" : self.ot_blur,
+            "scaling" : self.ot_scaling,
+            "truncate" : self.ot_trunctate
+        } 
+        self.ens.ot_reference(conf)
         source_pos, target_pos = self.ens.compute_data
 
         # Create the two buffers the compute shader will write and read from

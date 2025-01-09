@@ -51,7 +51,7 @@ class Ensemble:
 
             self.num_points.append(model.num_points)
 
-    def ot_reference(self):
+    def ot_reference(self, conf):
         """
         Calls OT with the first file as reference.
         """
@@ -65,7 +65,7 @@ class Ensemble:
                 idx = i
 
         octrees = [model.octree for i, model in enumerate(self.models) if i != idx]
-        self.correspondences, self.matching_colors = ot_with_reference(self.models[idx].octree, octrees)
+        self.correspondences, self.matching_colors = ot_with_reference(self.models[idx].octree, octrees, conf)
         # reorder models
         self.models = [self.models[idx]] + [model for i, model in enumerate(self.models) if i != idx]
 

@@ -173,8 +173,8 @@ class OrbitDragCameraWindow(mglw.WindowConfig):
                 right, _ = Vector3.from_vector4(self.camera.matrix @ Vector4.from_vector3(self.camera.right, 1.0))
                 up, _ = Vector3.from_vector4(self.camera.matrix @ Vector4.from_vector3(self.camera.up, 1.0))
                 # todo hardcoded speed cap
-                self.camera.position += self.camera.zoom_sensitivity * math.log(min(self.camera.radius, 0.01) + 1) * ((right * dx) + (up * dy))
-                self.camera.target += self.camera.zoom_sensitivity * math.log(min(self.camera.radius, 0.01) + 1) * ((right * dx) + (up * dy))
+                self.camera.position += self.camera.zoom_sensitivity * math.log(min(self.camera.radius, 0.01) + 1) * ((right * -dx) + (up * dy))
+                self.camera.target += self.camera.zoom_sensitivity * math.log(min(self.camera.radius, 0.01) + 1) * ((right * -dx) + (up * dy))
 
     def mouse_scroll_event(self, x_offset, y_offset):
         self.camera.zoom_state(y_offset)

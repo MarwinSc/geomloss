@@ -402,16 +402,16 @@ def ot_octree(source, target):
     return dbg, color_matching
 
 
-def ot_octree_autodiff(source, target):
+def ot_octree_autodiff(source, target, conf):
 
     if use_cuda:
         torch.cuda.synchronize()
     start = time.time()
 
-    blur = 0.001
+    blur = conf["blur"]
     p = 2
 
-    Loss = Samplesloss_octree("sinkhorn", p=p, blur=blur, scaling=0.7, truncate=5, backend="multiscale", potentials=False)#, reach=1)
+    Loss = Samplesloss_octree("sinkhorn", p=p, blur=blur, scaling=conf["scaling"], truncate=conf["truncate"], backend="multiscale", potentials=False)#, reach=1)
 
     emd = Loss(source, target)
     [grad_source] = torch.autograd.grad(emd, [source.points])
