@@ -70,7 +70,9 @@ class Renderer(OrbitDragCameraWindow):
         self.lock_states = True
         ## Rendering
         self.point_size = 3.0
+        self.bg_color = (1.0, 1.0, 1.0)
         ## OT
+        self.normalize_data = False
         self.ot_blur = 0.001
         self.ot_scaling = 0.7
         self.ot_trunctate = 5
@@ -78,7 +80,7 @@ class Renderer(OrbitDragCameraWindow):
 
     def render(self, time: float, frametime: float):
         #self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE | moderngl.PROGRAM_POINT_SIZE | moderngl.BLEND)
-        self.ctx.clear(1.0, 1.0, 1.0)
+        self.ctx.clear(self.bg_color[0], self.bg_color[1], self.bg_color[2])
         self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE | moderngl.BLEND | moderngl.PROGRAM_POINT_SIZE)
         self.ctx.blend_func = moderngl.DEFAULT_BLENDING
 
@@ -149,7 +151,8 @@ class Renderer(OrbitDragCameraWindow):
             self.compute_shader['color_distance'] = self.color_distance
             self.compute_shader['transition_state'] = self.transition_state * (self.number_of_files - 1) - self.current_assignment
             self.compute_shader['color_state'] = self.color_state * (self.number_of_files - 1) - self.current_assignment
-            self.compute_shader.run(group_x = int(self.num_points[self.current_assignment] / self.WORKGOUP_SIZE))
+            # always take the number of points from the reference model
+            self.compute_shader.run(group_x = int(self.num_points[0] / self.WORKGOUP_SIZE))
 
             self.prog['projection'].write(self.camera.projection.matrix)
             self.prog['modelview'].write(self.camera.matrix)
@@ -191,14 +194,34 @@ class Renderer(OrbitDragCameraWindow):
 
         add_files = imgui.button("Files")
         if add_files:
-            self.files = askopenfilenames(filetypes = [('', '*e57'), ('', '*ply'), ('', '*.obj'), ('', '*.laz')])
-            util.write_filelist_json(self.files)
+            self.files = list(askopenfilenames(filetypes = [('', '*e57'), ('', '*ply'), ('', '*.obj'), ('', '*.laz')]))
+
         if hasattr(self, "files"):
-            for file in self.files:
-                imgui.text(file)
+            if imgui.tree_node("Files", imgui.TREE_NODE_DEFAULT_OPEN):
+
+                #for i, file in enumerate(self.files):
+                #    #imgui.text(file)
+                #    pressed, state = imgui.selectable(file.split("/")[-1], self.selected == i)
+                #    if pressed:
+                #        self.selected = i
+                #        print(f"Selected: {file}")
+
+                for i, file in enumerate(self.files):
+                    pressed, state = imgui.selectable(file.split("/")[-1])
+                    if imgui.is_item_active() and not imgui.is_item_hovered():
+                        next = i + (-1 if imgui.get_mouse_drag_delta(0)[1] < 0 else 1)
+                        if next >= 0 and next < len(self.files):
+                            self.files[i], self.files[next] = self.files[next], self.files[i]
+                            imgui.reset_mouse_drag_delta()
+
+                imgui.tree_pop()
+
+                _, self.normalize_data = imgui.checkbox("Normalize Data", self.normalize_data)
+
 
         run_assign = imgui.button("Build Correspondence")
         if run_assign:
+            util.write_filelist_json(self.files)
             self.run_ot()
             #self.load_data()
 
@@ -209,6 +232,7 @@ class Renderer(OrbitDragCameraWindow):
         renderer, _ = imgui.collapsing_header("Renderer", True)
         if renderer:
             _, self.point_size = imgui.slider_float("", self.point_size, 1.0, 30.0)
+            _, self.bg_color = imgui.color_edit3("Background Color", *self.bg_color)
 
         optimal_transport, _ = imgui.collapsing_header("Optimal Transport", True)
         if optimal_transport:
@@ -257,7 +281,14 @@ class Renderer(OrbitDragCameraWindow):
     def generic_run(self, filelist):
         self.number_of_files = len(filelist['files'])
 
-        self.ens = Ensemble(filelist)
+        conf = {
+            "octree_node_size": 1000,
+            "normalize_data": self.normalize_data,
+            "autograd": True,
+            "sort_emd": False
+        }
+
+        self.ens = Ensemble(filelist, conf)
         self.ens.build()
         #self.ens.ot_sequential()
         conf = {

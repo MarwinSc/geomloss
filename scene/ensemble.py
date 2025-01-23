@@ -6,15 +6,10 @@ from optimal_transport.__main__ import otot, ot_with_reference
 
 class Ensemble:
 
-    conf = {
-            "octree_node_size": 1000,
-            "normalize_data": True,
-            "autograd": True
-        }
-
-    def __init__(self, filelist):
+    def __init__(self, filelist, conf):
         
         self.filelist = filelist
+        self.conf = conf
         self.models = []
         self.correspondences = []
         self.matching_colors = []
@@ -52,9 +47,12 @@ class Ensemble:
         Create a model for each file in the filelist.
         """
         # mean is used to normalize all point clouds to the same origin and scale
+        norm_params = None
         for file in self.filelist['files']:
             model = Model(file, self.conf)
-            model.build()
+            norm_params = model.build(norm_params)
+            if self.conf["normalize_data"]:
+                norm_params = None
             self.models.append(model)
 
             self.num_points.append(model.num_points)
@@ -63,17 +61,10 @@ class Ensemble:
         """
         Calls OT with the first file as reference.
         """
-        #largest = 0
-        smallest = 1000000000
-        idx = -1
-        for i, m in enumerate(self.models):
-            #if m.num_points > largest:
-            if m.num_points < smallest:
-                smallest = m.num_points
-                idx = i
-
+        idx = 0
+        print(f"Reference model: {self.models[idx].file}")
         octrees = [model.octree for i, model in enumerate(self.models) if i != idx]
-        self.correspondences, self.matching_colors = ot_with_reference(self.models[idx].octree, octrees, conf)
+        self.correspondences, self.matching_colors = ot_with_reference(self.models[idx].octree, octrees, conf, sort=self.conf["sort_emd"])
         # reorder models
         self.models = [self.models[idx]] + [model for i, model in enumerate(self.models) if i != idx]
 
@@ -86,7 +77,7 @@ class Ensemble:
         if self.idx == 0:
             oct = self.models[0].octree
             positions = oct.points.detach().cpu().numpy()
-            colors = oct.colors
+            colors = oct.colors 
             positions = np.c_[positions, np.ones(positions.shape[0])]
             compute_data = np.empty((positions.shape[0] + colors.shape[0], 4), dtype="f4")
             compute_data[0::2,:] = positions

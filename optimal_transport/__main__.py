@@ -780,7 +780,7 @@ def otot(octrees):
     return correspondences_list, colors_list
 
 
-def ot_with_reference(reference_oct, octrees, conf):
+def ot_with_reference(reference_oct, octrees, conf, sort = True):
     # allow to allocate additional memory
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     
