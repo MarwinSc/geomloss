@@ -865,10 +865,12 @@ def get_octree_clusters(octree, jumps=1, elongate=0, verbose=False):
         # get centroids and weights
         # get centroids 
         selection = bounds[current_metadata_ref]
-        # todo change to center of mass 
-        centroids = np.r_[[selection[:, 0] + ((selection[:, 3] - selection[:, 0]) / 2.0),
-                        selection[:, 1] + ((selection[:, 4] - selection[:, 1]) / 2.0),
-                       selection[:, 2] + ((selection[:, 5] - selection[:, 2]) / 2.0)]].T
+        # mean of the bounds
+        #centroids = np.r_[[selection[:, 0] + ((selection[:, 3] - selection[:, 0]) / 2.0),
+        #                selection[:, 1] + ((selection[:, 4] - selection[:, 1]) / 2.0),
+        #               selection[:, 2] + ((selection[:, 5] - selection[:, 2]) / 2.0)]].T
+        # center of mass
+        centroids = selection[:, 6:]
 
         # get weights
         pointcount = metadata[current_metadata_ref, 0]

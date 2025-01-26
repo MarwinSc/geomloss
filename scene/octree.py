@@ -59,7 +59,8 @@ class Octree:
         self.point_id = 0
         
         self.hierarchy = np.zeros((self.knot_count, 8), dtype=np.uint32)
-        self.bounds = np.zeros((self.knot_count + self.non_empty_leaf_count + 1, 6))
+        # bounds + center of mass
+        self.bounds = np.zeros((self.knot_count + self.non_empty_leaf_count + 1, 9))
         self.metadata = np.zeros((self.knot_count + self.non_empty_leaf_count + 1, 4), dtype=np.uint32)
         self.points = np.zeros((self.point_count, 3))
         self.colors = np.zeros((self.point_count, 4))
@@ -80,7 +81,7 @@ class Octree:
         return self.hierarchy, self.bounds, self.metadata, self.points, self.colors, self.weights
 
 class Node:
-    def __init__(self, bounds, nodeindex, level, octree):
+    def __init__(self, points, bounds, nodeindex, level, octree):
         self.bounds = bounds
         self.isleaf = False
         self.nodeindex = nodeindex  # (x, y, z) 0 for positive 1 for negative
@@ -95,6 +96,11 @@ class Node:
                                     self.bounds[0, 1] + self.extent[1] / 2,
                                     self.bounds[0, 2] + self.extent[2] / 2], dtype=np.float32)
         
+        if points is not None and points.shape[0] > 0:
+            self.center_of_mass = np.mean(points, axis=0)
+        else:
+            self.center_of_mass = self.mid.copy()
+        
         if len(octree.node_count) <= level:
             octree.node_count.append(1)
         else:
@@ -103,7 +109,7 @@ class Node:
 
 class Leaf(Node):
     def __init__(self, points, colors, bounds, nodeindex, level, octree):
-        super().__init__(bounds, nodeindex, level, octree)
+        super().__init__(points, bounds, nodeindex, level, octree)
         self.isleaf = True
         self.points = points
         self.colors = colors
@@ -139,7 +145,7 @@ class Leaf(Node):
 
             # isleaf as own list?                                   0      1        2             3
             self.octree.metadata[self.hierarchy_ref, :] = np.r_[len(self), 0, self.point_ref, self.level]
-            self.octree.bounds[self.hierarchy_ref, :] = self.bounds.flatten()
+            self.octree.bounds[self.hierarchy_ref, :] = np.concatenate([self.bounds.ravel(), self.center_of_mass.ravel()])
         
     # deprecated
     def write(self, hierarchyfile, metadatafile, pointfile, as_bytes=False):
@@ -192,7 +198,7 @@ childindex_lut = {
 class Knot(Node):
 
     def __init__(self, points, colors, bounds, nodeindex, level, octree):
-        super().__init__(bounds, nodeindex, level, octree)
+        super().__init__(points, bounds, nodeindex, level, octree)
         self.children = None
         self.total_points = None
         self.setup_children(points, colors)
@@ -267,17 +273,6 @@ class Knot(Node):
         bounds = np.array([[self.mid[0], self.mid[1], self.mid[2]],
                            [self.bounds[1, 0], self.bounds[1, 1], self.bounds[1, 2]]], dtype=np.float32)
         self.total_points += self.add(points, colors, bounds, "111")
-
-    def get_nodeindex(self, point):
-        nodeindex = ""
-        for i in range(3):
-            if self.bounds[0, i] <= point[i] <= self.mid[i]:
-                nodeindex += "0"
-            elif self.mid[i] < point[i] <= self.bounds[1, i]:
-                nodeindex += "1"
-            else:
-                raise Exception("Not in the node.")
-        return nodeindex
     
     def to_list(self):
 
@@ -311,7 +306,7 @@ class Knot(Node):
 
         # isleaf as own list?
         self.octree.metadata[self.hierarchy_ref, :] = np.r_[len(self), self.octree.hierarchy_index, self.point_ref, self.level]
-        self.octree.bounds[self.hierarchy_ref, :] = self.bounds.flatten()
+        self.octree.bounds[self.hierarchy_ref, :] = np.concatenate([self.bounds.ravel(), self.center_of_mass.ravel()])
         self.octree.hierarchy[self.octree.hierarchy_index, :] = self.hierarchy
 
         self.octree.hierarchy_index += 1
