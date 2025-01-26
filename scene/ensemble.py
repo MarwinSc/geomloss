@@ -92,10 +92,17 @@ class Ensemble:
         
         # next points
         assignment_positions = self.correspondences[self.idx]
-        assignment_distances = np.linalg.norm(assignment_positions - positions[:, :3], axis=1)
-        # todo
-        max_distance = np.max(assignment_distances)
-        assignment_distances = assignment_distances / max_distance 
+
+        if self.conf["accumulate_distance"]:
+            assignment_distances = np.linalg.norm(self.correspondences[0] - positions[:, :3], axis=1)
+            for i in range(1, self.idx + 1):
+                assignment_distances += np.linalg.norm(self.correspondences[i] - self.correspondences[i-1], axis=1)
+            max_distance = np.max(assignment_distances)
+            assignment_distances = assignment_distances / max_distance 
+        else:
+            assignment_distances = np.linalg.norm(assignment_positions - positions[:, :3], axis=1)
+            max_distance = np.max(assignment_distances)
+            assignment_distances = assignment_distances / max_distance 
 
         assignment = np.empty((len(assignment_positions) * 2, 4), dtype="f4")
         assignment[0::2,:] = np.c_[assignment_positions, assignment_distances]

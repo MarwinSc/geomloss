@@ -73,6 +73,7 @@ class Renderer(OrbitDragCameraWindow):
         self.bg_color = (1.0, 1.0, 1.0)
         ## OT
         self.normalize_data = False
+        self.accumulate_distance = True
         self.ot_blur = 0.001
         self.ot_scaling = 0.7
         self.ot_trunctate = 5
@@ -217,7 +218,7 @@ class Renderer(OrbitDragCameraWindow):
                 imgui.tree_pop()
 
                 _, self.normalize_data = imgui.checkbox("Normalize Data", self.normalize_data)
-
+                _, self.accumulate_distance = imgui.checkbox("Accumulate Distance", self.accumulate_distance)
 
         run_assign = imgui.button("Build Correspondence")
         if run_assign:
@@ -285,7 +286,8 @@ class Renderer(OrbitDragCameraWindow):
             "octree_node_size": 1000,
             "normalize_data": self.normalize_data,
             "autograd": True,
-            "sort_emd": False
+            "sort_emd": False,
+            "accumulate_distance": self.accumulate_distance
         }
 
         self.ens = Ensemble(filelist, conf)
