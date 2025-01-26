@@ -153,7 +153,7 @@ class Renderer(OrbitDragCameraWindow):
             self.compute_shader['transition_state'] = self.transition_state * (self.number_of_files - 1) - self.current_assignment
             self.compute_shader['color_state'] = self.color_state * (self.number_of_files - 1) - self.current_assignment
             # always take the number of points from the reference model
-            self.compute_shader.run(group_x = int(self.num_points[0] / self.WORKGOUP_SIZE))
+            self.compute_shader.run(group_x = int(np.ceil(self.num_points[0] / self.WORKGOUP_SIZE)))
 
             self.prog['projection'].write(self.camera.projection.matrix)
             self.prog['modelview'].write(self.camera.matrix)
