@@ -146,9 +146,19 @@ class OrbitDragCameraWindow(mglw.WindowConfig):
 
         self.camera = OrbitCamera(aspect_ratio=self.wnd.aspect_ratio)
 
+        # create framebuffer
+        color = self.ctx.texture(self.wnd.size, 4)
+        depth = self.ctx.depth_texture(self.wnd.size)
+        self.my_framebuffer = self.ctx.framebuffer(color_attachments=[color], depth_attachment=depth)
+
     def resize(self, width: int, height: int):
         self.camera.projection.update(aspect_ratio=self.wnd.aspect_ratio)
         self.imgui.resize(width, height)
+
+        self.my_framebuffer.release()
+        color = self.ctx.texture((width, height), 4)
+        depth = self.ctx.depth_texture((width, height))
+        self.my_framebuffer = self.ctx.framebuffer(color_attachments=[color], depth_attachment=depth)
 
     def key_event(self, key, action, modifiers):
         keys = self.wnd.keys

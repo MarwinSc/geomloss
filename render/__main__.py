@@ -54,6 +54,32 @@ class Renderer(OrbitDragCameraWindow):
         compute_shader_code_parsed = compute_shader_code.replace("%COMPUTE_SIZE%", str(self.WORKGOUP_SIZE))
         self.compute_shader = self.ctx.compute_shader(compute_shader_code_parsed)
 
+        # create quad shader 
+        vertex_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "screen_quad_vertex.glsl")
+        fragment_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "screen_quad_fragment.glsl")
+        self.quad_prog = self.ctx.program(
+            vertex_shader=vertex_shader_code,
+            fragment_shader=fragment_shader_code
+        )
+
+        # create quad vao 
+        quad_vertices = np.array([
+            -1.0, -1.0, 0.0, 0.0,  # Bottom-left  (pos: -1, -1) (UV: 0, 0)
+            1.0, -1.0, 1.0, 0.0,  # Bottom-right (pos:  1, -1) (UV: 1, 0)
+            -1.0,  1.0, 0.0, 1.0,  # Top-left     (pos: -1,  1) (UV: 0, 1)
+            1.0,  1.0, 1.0, 1.0,  # Top-right    (pos:  1,  1) (UV: 1, 1)
+        ], dtype='f4')
+
+        quad_indices = np.array([0, 1, 2, 2, 1, 3], dtype='i4')
+
+        # Create buffers
+        vbo = self.ctx.buffer(quad_vertices)
+        ibo = self.ctx.buffer(quad_indices)
+        
+        self.quad_vao = self.ctx.vertex_array(self.quad_prog, [
+            (vbo, "2f 2f", "aPos", "aTexCoords")
+        ], ibo)
+
         # todo ? 
         #self.wnd.mouse_exclusivity = True
 
@@ -71,6 +97,11 @@ class Renderer(OrbitDragCameraWindow):
         ## Rendering
         self.point_size = 3.0
         self.bg_color = (1.0, 1.0, 1.0)
+        self.wireframe = False
+        self.render_contour = False
+        self.contour_overlay = True
+        self.contour_amp = 1.0
+        self.offset_factor = 1.0
         ## OT
         self.normalize_data = False
         self.accumulate_distance = True
@@ -78,10 +109,13 @@ class Renderer(OrbitDragCameraWindow):
         self.ot_scaling = 0.7
         self.ot_trunctate = 5
 
-
     def render(self, time: float, frametime: float):
+
+        self.my_framebuffer.use()
         #self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE | moderngl.PROGRAM_POINT_SIZE | moderngl.BLEND)
-        self.ctx.clear(self.bg_color[0], self.bg_color[1], self.bg_color[2])
+        self.ctx.clear(self.bg_color[0], self.bg_color[1], self.bg_color[2], 1.0)
+        #self.ctx.clear(0.5, 0.5, 0.5, 1.0)
+        
         self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE | moderngl.BLEND | moderngl.PROGRAM_POINT_SIZE)
         self.ctx.blend_func = moderngl.DEFAULT_BLENDING
 
@@ -97,12 +131,12 @@ class Renderer(OrbitDragCameraWindow):
                 # assign the new target
                 self.target_buffer = self.ctx.buffer(target_pos)
 
-                self.compute_buffer_a = self.ctx.buffer(source_pos)
+                #self.compute_buffer_a = self.ctx.buffer(source_pos)
                 self.compute_buffer_b = self.ctx.buffer(source_pos)
 
-                self.points_a = self.ctx.vertex_array(
-                    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
-                )
+                #self.points_a = self.ctx.vertex_array(
+                #    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
+                #)
                 self.points_b = self.ctx.vertex_array(
                     self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
                 )
@@ -120,12 +154,12 @@ class Renderer(OrbitDragCameraWindow):
                 # assign the new target
                 self.target_buffer = self.ctx.buffer(target_pos)
 
-                self.compute_buffer_a = self.ctx.buffer(source_pos)
+                #self.compute_buffer_a = self.ctx.buffer(source_pos)
                 self.compute_buffer_b = self.ctx.buffer(source_pos)
 
-                self.points_a = self.ctx.vertex_array(
-                    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
-                )
+                #self.points_a = self.ctx.vertex_array(
+                #    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
+                #)
                 self.points_b = self.ctx.vertex_array(
                     self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
                 )
@@ -163,11 +197,35 @@ class Renderer(OrbitDragCameraWindow):
             self.prog['varying_size'] = self.varying_size
             self.points_b.render(mode=self.ctx.POINTS)
 
+        # bind the default framebuffer
+        self.ctx.screen.use()
+        self.ctx.clear(0.0, 0.0, 0.0, 1.0)
+        self.quad_prog['screenTexture'].value = 0
+        self.quad_prog['depthTexture'].value = 1
+        self.my_framebuffer.color_attachments[0].use(location=0)
+        self.my_framebuffer.depth_attachment.use(location=1)
+        self.quad_prog['render_contour'] = self.render_contour
+        self.quad_prog['contour_overlay'] = self.contour_overlay
+        self.quad_prog['contour_amp'] = self.contour_amp
+        self.quad_prog['bg_color'] = self.bg_color
+        self.quad_prog['offset_h'] = 1.0 / (self.wnd.size[0] * self.offset_factor)
+        self.quad_prog['offset_v'] = 1.0 / (self.wnd.size[1] * self.offset_factor)
+
+        self.ctx.wireframe = self.wireframe
+
+        self.quad_vao.render(moderngl.TRIANGLES)
+
+        self.ctx.wireframe = False
+
+            # not sure how moderngl handels buffer swapping
+            # but removing this gives about 20fps more
+            # and this also results in a flickering
             # switch buffers for rendering 
-            self.compute_buffer_a, self.compute_buffer_b = self.compute_buffer_b, self.compute_buffer_a
-            self.points_a, self.points_b = self.points_b, self.points_a
+            #self.compute_buffer_a, self.compute_buffer_b = self.compute_buffer_b, self.compute_buffer_a
+            #self.points_a, self.points_b = self.points_b, self.points_a
 
         self.render_ui()
+
     
     def render_ui(self):
         super().render_ui()
@@ -232,8 +290,14 @@ class Renderer(OrbitDragCameraWindow):
 
         renderer, _ = imgui.collapsing_header("Renderer", True)
         if renderer:
-            _, self.point_size = imgui.slider_float("", self.point_size, 1.0, 30.0)
+            _, self.point_size = imgui.slider_float("P", self.point_size, 1.0, 30.0)
             _, self.bg_color = imgui.color_edit3("Background Color", *self.bg_color)
+            _, self.wireframe = imgui.checkbox("Wireframe", self.wireframe)
+            _, self.render_contour = imgui.checkbox("Render Contour", self.render_contour)
+            _, self.contour_overlay = imgui.checkbox("Contour Overlay", self.contour_overlay)
+            _, self.contour_amp = imgui.slider_float("C", self.contour_amp, 0.0, 100.0)
+            _, self.offset_factor = imgui.slider_float("Offset Factor", self.offset_factor, 0.1, 2.0)
+
 
         optimal_transport, _ = imgui.collapsing_header("Optimal Transport", True)
         if optimal_transport:
@@ -303,16 +367,16 @@ class Renderer(OrbitDragCameraWindow):
 
         # Create the two buffers the compute shader will write and read from
         self.current_assignment = 0
-        self.compute_buffer_a = self.ctx.buffer(source_pos)
+        #self.compute_buffer_a = self.ctx.buffer(source_pos)
         self.compute_buffer_b = self.ctx.buffer(source_pos)
         self.source_buffer = self.ctx.buffer(source_pos)
         self.target_buffer = self.ctx.buffer(target_pos)
 
         # Prepare vertex arrays to drawing points using the compute shader buffers are input
         # We use 4x4 (padding format)
-        self.points_a = self.ctx.vertex_array(
-            self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
-        )
+        #self.points_a = self.ctx.vertex_array(
+        #    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
+        #)
         self.points_b = self.ctx.vertex_array(
             self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
         )
