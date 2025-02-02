@@ -97,11 +97,17 @@ class Renderer(OrbitDragCameraWindow):
         ## Rendering
         self.point_size = 3.0
         self.bg_color = (1.0, 1.0, 1.0)
+        self.depth_contour_color = (0.0, 0.0, 0.0)
+        self.exen_contour_color = (0.0, 0.0, 0.0)
         self.wireframe = False
-        self.render_contour = False
-        self.contour_overlay = True
-        self.contour_amp = 1.0
         self.offset_factor = 1.0
+        self.transparency = 1.0
+        ## contour
+        self.contour_overlay = True
+        self.render_depth_contour = False
+        self.depth_contour_amp = 5.0
+        self.render_exen_contour = False
+        self.exen_contour_amp = 1.0
         ## OT
         self.normalize_data = False
         self.accumulate_distance = True
@@ -183,7 +189,6 @@ class Renderer(OrbitDragCameraWindow):
             #    #TODO
             #    print(f"exception: {e}")
             #self.compute_shader['max_distance'] = self.max_distance
-            self.compute_shader['color_distance'] = self.color_distance
             self.compute_shader['transition_state'] = self.transition_state * (self.number_of_files - 1) - self.current_assignment
             self.compute_shader['color_state'] = self.color_state * (self.number_of_files - 1) - self.current_assignment
             # always take the number of points from the reference model
@@ -195,19 +200,28 @@ class Renderer(OrbitDragCameraWindow):
             self.prog['point_size'] = self.point_size
             #self.prog['time'].value = time
             self.prog['varying_size'] = self.varying_size
+            self.prog['transparency'] = self.transparency
             self.points_b.render(mode=self.ctx.POINTS)
 
         # bind the default framebuffer
         self.ctx.screen.use()
         self.ctx.clear(0.0, 0.0, 0.0, 1.0)
-        self.quad_prog['screenTexture'].value = 0
-        self.quad_prog['depthTexture'].value = 1
+        self.quad_prog['color_distance'] = self.color_distance
+        self.quad_prog['colorTexture'].value = 0
+        self.quad_prog['explicitEncodingTexture'].value = 1
+        self.quad_prog['depthTexture'].value = 2
         self.my_framebuffer.color_attachments[0].use(location=0)
-        self.my_framebuffer.depth_attachment.use(location=1)
-        self.quad_prog['render_contour'] = self.render_contour
-        self.quad_prog['contour_overlay'] = self.contour_overlay
-        self.quad_prog['contour_amp'] = self.contour_amp
+        self.my_framebuffer.color_attachments[1].use(location=1)
+        self.my_framebuffer.depth_attachment.use(location=2)
         self.quad_prog['bg_color'] = self.bg_color
+        # contour uniforms
+        self.quad_prog['contour_overlay'] = self.contour_overlay
+        self.quad_prog['render_depth_contour'] = self.render_depth_contour
+        self.quad_prog['depth_contour_amp'] = self.depth_contour_amp
+        self.quad_prog['render_exen_contour'] = self.render_exen_contour
+        self.quad_prog['exen_contour_amp'] = self.exen_contour_amp
+        self.quad_prog['depth_contour_color'] = self.depth_contour_color
+        self.quad_prog['exen_contour_color'] = self.exen_contour_color
         self.quad_prog['offset_h'] = 1.0 / (self.wnd.size[0] * self.offset_factor)
         self.quad_prog['offset_v'] = 1.0 / (self.wnd.size[1] * self.offset_factor)
 
@@ -288,16 +302,24 @@ class Renderer(OrbitDragCameraWindow):
         if load_debug:
             self.run_debug()
 
-        renderer, _ = imgui.collapsing_header("Renderer", True)
-        if renderer:
+        renderer_ui, _ = imgui.collapsing_header("Renderer", True)
+        if renderer_ui:
             _, self.point_size = imgui.slider_float("P", self.point_size, 1.0, 30.0)
             _, self.bg_color = imgui.color_edit3("Background Color", *self.bg_color)
             _, self.wireframe = imgui.checkbox("Wireframe", self.wireframe)
-            _, self.render_contour = imgui.checkbox("Render Contour", self.render_contour)
-            _, self.contour_overlay = imgui.checkbox("Contour Overlay", self.contour_overlay)
-            _, self.contour_amp = imgui.slider_float("C", self.contour_amp, 0.0, 100.0)
-            _, self.offset_factor = imgui.slider_float("Offset Factor", self.offset_factor, 0.1, 2.0)
+            _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
+            # contour 
+            _, self.contour_overlay = imgui.checkbox("Ex Contour Overlay", self.contour_overlay)
+            _, self.render_depth_contour = imgui.checkbox("Render Depth Contour", self.render_depth_contour)
+            _, self.render_exen_contour = imgui.checkbox("Render Ex Contour", self.render_exen_contour)
 
+            contour_params_ui, _ = imgui.collapsing_header("Contour Parameters", True)
+            if contour_params_ui:
+                _, self.depth_contour_amp = imgui.slider_float("CD", self.depth_contour_amp, 0.0, 100.0)
+                _, self.exen_contour_amp = imgui.slider_float("CEX", self.exen_contour_amp, 0.0, 100.0)
+                _, self.depth_contour_color = imgui.color_edit3("Depth Color", *self.depth_contour_color)
+                _, self.exen_contour_color = imgui.color_edit3("Explicit Encoding Color", *self.exen_contour_color)
+                _, self.offset_factor = imgui.slider_float("Offset Factor", self.offset_factor, 0.1, 2.0)
 
         optimal_transport, _ = imgui.collapsing_header("Optimal Transport", True)
         if optimal_transport:

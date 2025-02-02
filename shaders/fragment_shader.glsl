@@ -1,8 +1,11 @@
 
 #version 460
 
-in vec4 color;
+uniform float transparency;
+
+in vec4 color; // w is the distance in the range[0, 1]
 out vec4 outColor;
+out vec4 outExplicitEncoding;
 
 void main() {
     // Calculate the distance from the center of the point
@@ -12,5 +15,9 @@ void main() {
     // .. an use to render a circle!
     //outColor = vec4(dist * color, dist);
 
-    outColor = color;
+    outColor = vec4(color.xyz, transparency);
+
+    float interp = color.w;
+    outExplicitEncoding = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
+    outExplicitEncoding.w = transparency;
 }

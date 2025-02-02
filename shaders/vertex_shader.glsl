@@ -1,8 +1,8 @@
 
 #version 460
 
-in vec4 in_position;
-in vec4 in_color;
+in vec4 in_position; 
+in vec4 in_color; // w is still the distance
 
 uniform mat4 projection;
 uniform mat4 modelview;
@@ -26,5 +26,5 @@ void main() {
 
     // Calculate a random color based on the vertex index
     //color = vec3(mod(gl_VertexID * 432.43, 1.0), mod(gl_VertexID * 6654.32, 1.0), mod(gl_VertexID  * 6544.11, 1.0));
-    color = vec4(in_color.xyz, 1.0);
+    color = in_color;
 }
