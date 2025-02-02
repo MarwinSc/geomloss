@@ -24,6 +24,9 @@ uniform float offset_h;
 //const float offset_v = 1.0 / (720.0 / 1.0);  
 //const float offset_h = 1.0 / (1280.0 / 1.0);
 
+const int KERNEL_SIZE = 5;
+const int TOTAL_KERNEL_SIZE = KERNEL_SIZE * KERNEL_SIZE;
+
 void main()
 {
     // kernels and uv offsets
@@ -39,7 +42,13 @@ void main()
         vec2( offset_h, -offset_v)  // bottom-right    
     );
 
-    vec2 offsets_5[25] = vec2[](
+    float kernel3[9] = float[](
+        1, 1, 1,
+        1,-8, 1,
+        1, 1, 1
+    );
+
+    vec2 offsets[25] = vec2[](
         vec2(-2*offset_h,  2*offset_v), vec2(-offset_h,  2*offset_v), vec2(0.0,  2*offset_v), vec2(offset_h,  2*offset_v), vec2(2*offset_h,  2*offset_v),
         vec2(-2*offset_h,  offset_v),   vec2(-offset_h,  offset_v),   vec2(0.0,  offset_v),   vec2(offset_h,  offset_v),   vec2(2*offset_h,  offset_v),
         vec2(-2*offset_h,  0.0),      vec2(-offset_h,  0.0),      vec2(0.0,  0.0),      vec2(offset_h,  0.0),      vec2(2*offset_h,  0.0),
@@ -47,35 +56,32 @@ void main()
         vec2(-2*offset_h, -2*offset_v), vec2(-offset_h, -2*offset_v), vec2(0.0, -2*offset_v), vec2(offset_h, -2*offset_v), vec2(2*offset_h, -2*offset_v)
     );
 
-    float kernel3[9] = float[](
-        1, 1, 1,
-        1,-8, 1,
-        1, 1, 1
-    );
-
-    float kernel5[25] = float[](
+    float kernel[25] = float[](
         1,  1,  1,  1,  1,
         1,  2,  2,  2,  1,
         1,  2, -32, 2,  1,
         1,  2,  2,  2,  1,
         1,  1,  1,  1,  1
     );
+
+    //initKernel();
+    //initOffsets(offset_h, offset_v);
     
     float depth_contour = 0.0;
     float exen_contour = 0.0;
-    
+
     // render the depth contour
     if (render_depth_contour)
     {
         // sample the 3x3 kernel centered around the current pixel
-        float sampleTex[25];
-        for(int i = 0; i < 25; i++)
+        float sampleTex[TOTAL_KERNEL_SIZE];
+        for(int i = 0; i < TOTAL_KERNEL_SIZE; i++)
         {
-            sampleTex[i] = float(texture(depthTexture, TexCoords.st + (offsets_5[i])));
+            sampleTex[i] = float(texture(depthTexture, TexCoords.st + (offsets[i])));
         }
         float col = float(0.0);
-        for(int i = 0; i < 25; i++)
-            col += sampleTex[i] * kernel5[i];
+        for(int i = 0; i < TOTAL_KERNEL_SIZE; i++)
+            col += sampleTex[i] * kernel[i];
 
         // add user controllable factor to adjust the effect
         depth_contour = clamp(col * depth_contour_amp, 0.0, 1.0);
@@ -83,14 +89,14 @@ void main()
     
     if (render_exen_contour){
         // sample the 3x3 kernel centered around the current pixel
-        float sampleTex[25];
-        for(int i = 0; i < 25; i++)
+        float sampleTex[TOTAL_KERNEL_SIZE];
+        for(int i = 0; i < TOTAL_KERNEL_SIZE; i++)
         {
-            sampleTex[i] = float(texture(explicitEncodingTexture, TexCoords.st + (offsets_5[i])));
+            sampleTex[i] = float(texture(explicitEncodingTexture, TexCoords.st + (offsets[i])));
         }
         float col = float(0.0);
-        for(int i = 0; i < 25; i++)
-            col += sampleTex[i] * kernel5[i];
+        for(int i = 0; i < TOTAL_KERNEL_SIZE; i++)
+            col += sampleTex[i] * kernel[i];
 
         // add user controllable factor to adjust the effect
         exen_contour = clamp(col * exen_contour_amp, 0.0, 1.0);
@@ -111,8 +117,11 @@ void main()
     }
 
     if ((depth_contour > 0.0) || (exen_contour > 0.0)){
-        vec3 blend_contours = clamp(depth_contour * (1 - depth_contour_color) + exen_contour * (1 - exen_contour_color), 0.0, 1.0);
-        color = clamp(color - blend_contours, 0.0, 1.0);
-    } 
+        float weight = (depth_contour > 0.0 && exen_contour > 0.0) ? 0.5 : 
+                    (depth_contour > 0.0 || exen_contour > 0.0) ? 1.0 : 0.0;
+
+        color = mix(color, clamp((depth_contour * depth_contour_color) + (exen_contour * exen_contour_color), 0.0, 1.0), (depth_contour + exen_contour) * weight);
+    }
+
     FragColor = vec4(color, 1.0);
 }  
