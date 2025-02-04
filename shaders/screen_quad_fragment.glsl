@@ -17,6 +17,7 @@ uniform float depth_contour_amp;
 // explicit encoding contour parameters
 uniform bool render_exen_contour;
 uniform float exen_contour_amp;
+uniform float exen_number_contour_lines;
 // general contour parameters
 uniform bool contour_overlay;
 uniform float offset_v;
@@ -88,7 +89,7 @@ void main()
     }
     
     if (render_exen_contour){
-        // sample the 3x3 kernel centered around the current pixel
+        // sample the kernel centered around the current pixel
         float sampleTex[TOTAL_KERNEL_SIZE];
         for(int i = 0; i < TOTAL_KERNEL_SIZE; i++)
         {   
@@ -96,11 +97,11 @@ void main()
             // binary thresholding
             float weight = tex_color.r;
             // Scale the value into the range [0, 4] (5 discrete steps: 0.0, 0.25, 0.5, 0.75, 1.0)
-            float scaledValue = weight * 4.0;
+            float scaledValue = weight * exen_number_contour_lines;
             // Round the scaled value to the nearest integer (this maps it to [0, 1, 2, 3, 4])
             float rounded = round(scaledValue);
             // Map back to the closest value in the set [0.0, 0.25, 0.5, 0.75, 1.0]
-            sampleTex[i] = rounded * 0.25;
+            sampleTex[i] = rounded * (1.0/exen_number_contour_lines);
         }
         float col = float(0.0);
         for(int i = 0; i < TOTAL_KERNEL_SIZE; i++)

@@ -108,6 +108,7 @@ class Renderer(OrbitDragCameraWindow):
         self.depth_contour_amp = 5.0
         self.render_exen_contour = False
         self.exen_contour_amp = 1.0
+        self.exen_number_contour_lines = 10.0
         ## OT
         self.normalize_data = False
         self.accumulate_distance = True
@@ -222,6 +223,7 @@ class Renderer(OrbitDragCameraWindow):
         self.quad_prog['exen_contour_amp'] = self.exen_contour_amp
         self.quad_prog['depth_contour_color'] = self.depth_contour_color
         self.quad_prog['exen_contour_color'] = self.exen_contour_color
+        self.quad_prog['exen_number_contour_lines'] = self.exen_number_contour_lines
         self.quad_prog['offset_h'] = 1.0 / (self.wnd.size[0] * self.offset_factor)
         self.quad_prog['offset_v'] = 1.0 / (self.wnd.size[1] * self.offset_factor)
 
@@ -320,6 +322,8 @@ class Renderer(OrbitDragCameraWindow):
                 _, self.depth_contour_color = imgui.color_edit3("Depth Color", *self.depth_contour_color)
                 _, self.exen_contour_color = imgui.color_edit3("Explicit Encoding Color", *self.exen_contour_color)
                 _, self.offset_factor = imgui.slider_float("Offset Factor", self.offset_factor, 0.1, 2.0)
+                _, self.exen_number_contour_lines = imgui.input_int("Ex Contour Lines", self.exen_number_contour_lines, 1.0, 100.0)
+
 
         optimal_transport, _ = imgui.collapsing_header("Optimal Transport", True)
         if optimal_transport:
