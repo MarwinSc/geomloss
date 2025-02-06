@@ -54,10 +54,26 @@ class Renderer(OrbitDragCameraWindow):
         compute_shader_code_parsed = compute_shader_code.replace("%COMPUTE_SIZE%", str(self.WORKGOUP_SIZE))
         self.compute_shader = self.ctx.compute_shader(compute_shader_code_parsed)
 
-        # create quad shader 
-        vertex_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "screen_quad_vertex.glsl")
-        fragment_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "screen_quad_fragment.glsl")
-        self.quad_prog = self.ctx.program(
+        # create edge shader 
+        vertex_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "quad_vertex.glsl")
+        fragment_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "edge_fragment.glsl")
+        self.edge_prog = self.ctx.program(
+            vertex_shader=vertex_shader_code,
+            fragment_shader=fragment_shader_code
+        )
+
+        # create blur shader 
+        vertex_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "quad_vertex.glsl")
+        fragment_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "gaussian_fragment.glsl")
+        self.gaussian_prog = self.ctx.program(
+            vertex_shader=vertex_shader_code,
+            fragment_shader=fragment_shader_code
+        )
+
+        # create composite shader 
+        vertex_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "quad_vertex.glsl")
+        fragment_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "composite_fragment.glsl")
+        self.composite_prog = self.ctx.program(
             vertex_shader=vertex_shader_code,
             fragment_shader=fragment_shader_code
         )
@@ -76,7 +92,15 @@ class Renderer(OrbitDragCameraWindow):
         vbo = self.ctx.buffer(quad_vertices)
         ibo = self.ctx.buffer(quad_indices)
         
-        self.quad_vao = self.ctx.vertex_array(self.quad_prog, [
+        self.edges_vao = self.ctx.vertex_array(self.edge_prog, [
+            (vbo, "2f 2f", "aPos", "aTexCoords")
+        ], ibo)
+
+        self.gaussia_vao = self.ctx.vertex_array(self.gaussian_prog, [
+            (vbo, "2f 2f", "aPos", "aTexCoords")
+        ], ibo)
+
+        self.composite_vao = self.ctx.vertex_array(self.composite_prog, [
             (vbo, "2f 2f", "aPos", "aTexCoords")
         ], ibo)
 
@@ -91,11 +115,11 @@ class Renderer(OrbitDragCameraWindow):
         # imgui variables 
         self.transition_state = 0.0
         self.color_state = 0.0
-        self.color_distance = False
-        self.varying_size = False
         self.lock_states = True
         ## Rendering
-        self.point_size = 3.0
+        self.point_size = 6.0
+        self.color_distance = False
+        self.varying_size = True
         self.bg_color = (1.0, 1.0, 1.0)
         self.depth_contour_color = (0.0, 0.0, 0.0)
         self.exen_contour_color = (0.0, 0.0, 0.0)
@@ -125,7 +149,8 @@ class Renderer(OrbitDragCameraWindow):
         
         self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE | moderngl.BLEND | moderngl.PROGRAM_POINT_SIZE)
         self.ctx.blend_func = moderngl.DEFAULT_BLENDING
-
+        self.ctx.blend_equation = moderngl.FUNC_ADD
+        
         if self.loaded:
             
             # load next model
@@ -204,32 +229,56 @@ class Renderer(OrbitDragCameraWindow):
             self.prog['transparency'] = self.transparency
             self.points_b.render(mode=self.ctx.POINTS)
 
+
+        self.edges_framebuffer.use()
+
         # bind the default framebuffer
-        self.ctx.screen.use()
-        self.ctx.clear(0.0, 0.0, 0.0, 1.0)
-        self.quad_prog['color_distance'] = self.color_distance
-        self.quad_prog['colorTexture'].value = 0
-        self.quad_prog['explicitEncodingTexture'].value = 1
-        self.quad_prog['depthTexture'].value = 2
-        self.my_framebuffer.color_attachments[0].use(location=0)
+        self.ctx.clear(1.0, 1.0, 1.0, 0.0)
+        #self.edge_prog['colorTexture'].value = 0
+        self.edge_prog['explicitEncodingTexture'].value = 1
+        self.edge_prog['depthTexture'].value = 2
+        #self.my_framebuffer.color_attachments[0].use(location=0)
         self.my_framebuffer.color_attachments[1].use(location=1)
         self.my_framebuffer.depth_attachment.use(location=2)
-        self.quad_prog['bg_color'] = self.bg_color
+        #self.edge_prog['bg_color'] = self.bg_color
         # contour uniforms
-        self.quad_prog['contour_overlay'] = self.contour_overlay
-        self.quad_prog['render_depth_contour'] = self.render_depth_contour
-        self.quad_prog['depth_contour_amp'] = self.depth_contour_amp
-        self.quad_prog['render_exen_contour'] = self.render_exen_contour
-        self.quad_prog['exen_contour_amp'] = self.exen_contour_amp
-        self.quad_prog['depth_contour_color'] = self.depth_contour_color
-        self.quad_prog['exen_contour_color'] = self.exen_contour_color
-        self.quad_prog['exen_number_contour_lines'] = self.exen_number_contour_lines
-        self.quad_prog['offset_h'] = 1.0 / (self.wnd.size[0] * self.offset_factor)
-        self.quad_prog['offset_v'] = 1.0 / (self.wnd.size[1] * self.offset_factor)
+        #self.edge_prog['contour_overlay'] = self.contour_overlay
+        self.edge_prog['render_depth_contour'] = self.render_depth_contour
+        self.edge_prog['depth_contour_amp'] = self.depth_contour_amp
+        self.edge_prog['render_exen_contour'] = self.render_exen_contour
+        self.edge_prog['exen_contour_amp'] = self.exen_contour_amp
+        self.edge_prog['depth_contour_color'] = self.depth_contour_color
+        self.edge_prog['exen_contour_color'] = self.exen_contour_color
+        self.edge_prog['exen_number_contour_lines'] = self.exen_number_contour_lines
+        self.edge_prog['offset_h'] = 1.0 / (self.wnd.size[0] * self.offset_factor)
+        self.edge_prog['offset_v'] = 1.0 / (self.wnd.size[1] * self.offset_factor)
+
+        self.edges_vao.render(moderngl.TRIANGLES)
+
+        #self.blur_framebuffer.use()
+        #self.ctx.clear(1.0, 1.0, 1.0, 0.0)
+        #self.gaussian_prog['Texture'].value = 0
+        #self.edges_framebuffer.color_attachments[0].use(location=0)
+        #self.gaussian_prog['offset_h'] = 1.0 / (self.wnd.size[0] * self.offset_factor)
+        #self.gaussian_prog['offset_v'] = 1.0 / (self.wnd.size[1] * self.offset_factor)
+        #self.gaussia_vao.render(moderngl.TRIANGLES)
+
+        self.ctx.screen.use()
+
+        self.composite_prog['contour_overlay'] = self.contour_overlay
+        self.composite_prog['colorTexture'].value = 0
+        self.composite_prog['edgesTexture'].value = 1
+        if self.color_distance:
+            self.my_framebuffer.color_attachments[1].use(location=0)
+        else:
+            self.my_framebuffer.color_attachments[0].use(location=0)
+            
+        # todo change when using blur
+        self.edges_framebuffer.color_attachments[0].use(location=1)
 
         self.ctx.wireframe = self.wireframe
-
-        self.quad_vao.render(moderngl.TRIANGLES)
+        
+        self.composite_vao.render(moderngl.TRIANGLES)
 
         self.ctx.wireframe = False
 
@@ -307,6 +356,7 @@ class Renderer(OrbitDragCameraWindow):
         renderer_ui, _ = imgui.collapsing_header("Renderer", True)
         if renderer_ui:
             _, self.point_size = imgui.slider_float("P", self.point_size, 1.0, 30.0)
+            _, self.varying_size = imgui.checkbox("Varying Size", self.varying_size)
             _, self.bg_color = imgui.color_edit3("Background Color", *self.bg_color)
             _, self.wireframe = imgui.checkbox("Wireframe", self.wireframe)
             _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
@@ -318,7 +368,7 @@ class Renderer(OrbitDragCameraWindow):
             contour_params_ui, _ = imgui.collapsing_header("Contour Parameters", True)
             if contour_params_ui:
                 _, self.depth_contour_amp = imgui.slider_float("CD", self.depth_contour_amp, 0.0, 100.0)
-                _, self.exen_contour_amp = imgui.slider_float("CEX", self.exen_contour_amp, 0.0, 100.0)
+                _, self.exen_contour_amp = imgui.slider_float("CEX", self.exen_contour_amp, 0.0, 2.0)
                 _, self.depth_contour_color = imgui.color_edit3("Depth Color", *self.depth_contour_color)
                 _, self.exen_contour_color = imgui.color_edit3("Explicit Encoding Color", *self.exen_contour_color)
                 _, self.offset_factor = imgui.slider_float("Offset Factor", self.offset_factor, 0.1, 2.0)
@@ -334,7 +384,7 @@ class Renderer(OrbitDragCameraWindow):
         comparison, _ = imgui.collapsing_header("Comparison", True)
         if comparison:
             _, self.color_distance = imgui.checkbox("Color Distance", self.color_distance)
-            _, self.varying_size = imgui.checkbox("Varying Size", self.varying_size)
+
 
         imgui.end()
 

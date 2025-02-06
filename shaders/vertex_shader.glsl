@@ -16,10 +16,9 @@ void main() {
     gl_Position = projection * modelview * in_position;
     vec4 position_camera_coord = modelview * in_position;
     // Set the point size
-    //gl_PointSize = 25 - gl_Position.z + sin((time + gl_VertexID) * 7.0) * 10.0;
 
     if (varying_size) {
-        gl_PointSize = in_color.w * point_size;
+        gl_PointSize = (1/gl_Position.z) * point_size;
     } else {
         gl_PointSize = point_size;
     }
