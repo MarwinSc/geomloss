@@ -1,0 +1,87 @@
+#version 460
+
+out vec4 FragColor;
+in vec2 TexCoords;
+
+// uniform sampler2D colorTexture;
+uniform sampler2D depthTexture;
+
+// uniform vec3 bg_color;
+uniform vec3 depth_contour_color;
+
+// depth contour parameters
+uniform float depth_contour_amp;
+
+// general contour parameters
+uniform float offset_v;
+uniform float offset_h;
+uniform bool opaque;
+
+const int KERNEL_SIZE = 3;
+const int TOTAL_KERNEL_SIZE = KERNEL_SIZE * KERNEL_SIZE;
+
+void main()
+{
+
+    // kernels and uv offsets
+    const vec2 offsets_3[9] = vec2[](
+        vec2(-offset_h,  offset_v), // top-left
+        vec2( 0.0f,    offset_v), // top-center
+        vec2( offset_h,  offset_v), // top-right
+        vec2(-offset_h,  0.0f),   // center-left
+        vec2( 0.0f,    0.0f),   // center-center
+        vec2( offset_h,  0.0f),   // center-right
+        vec2(-offset_h, -offset_v), // bottom-left
+        vec2( 0.0f,   -offset_v), // bottom-center
+        vec2( offset_h, -offset_v)  // bottom-right    
+    );
+
+    const float kernel_3[9] = float[](
+        1, 1, 1,
+        1,-8, 1,
+        1, 1, 1
+    );
+
+    const vec2 offsets_5[25] = vec2[](
+        vec2(-2*offset_h,  2*offset_v), vec2(-offset_h,  2*offset_v), vec2(0.0,  2*offset_v), vec2(offset_h,  2*offset_v), vec2(2*offset_h,  2*offset_v),
+        vec2(-2*offset_h,  offset_v),   vec2(-offset_h,  offset_v),   vec2(0.0,  offset_v),   vec2(offset_h,  offset_v),   vec2(2*offset_h,  offset_v),
+        vec2(-2*offset_h,  0.0),      vec2(-offset_h,  0.0),      vec2(0.0,  0.0),      vec2(offset_h,  0.0),      vec2(2*offset_h,  0.0),
+        vec2(-2*offset_h, -offset_v),   vec2(-offset_h, -offset_v),   vec2(0.0, -offset_v),   vec2(offset_h, -offset_v),   vec2(2*offset_h, -offset_v),
+        vec2(-2*offset_h, -2*offset_v), vec2(-offset_h, -2*offset_v), vec2(0.0, -2*offset_v), vec2(offset_h, -2*offset_v), vec2(2*offset_h, -2*offset_v)
+    );
+
+    const float kernel_5[25] = float[](
+        1,  1,  1,  1,  1,
+        1,  2,  2,  2,  1,
+        1,  2, -32, 2,  1,
+        1,  2,  2,  2,  1,
+        1,  1,  1,  1,  1
+    );
+
+    float depth_contour = 0.0;
+
+    // sample the 5x5 kernel centered around the current pixel
+    float sampleTex[TOTAL_KERNEL_SIZE];
+    for(int i = 0; i < TOTAL_KERNEL_SIZE; i++)
+    {
+        sampleTex[i] = float(texture(depthTexture, TexCoords.st + (offsets_3[i])));
+    }
+    float col = float(0.0);
+    // sum to see if it is an edge or rather a individual point
+    for(int i = 0; i < TOTAL_KERNEL_SIZE; i++){
+        col += sampleTex[i] * kernel_3[i];
+    }
+    depth_contour = clamp(col * depth_contour_amp, 0.0, 1.0);
+
+    if (depth_contour > 0.0){
+
+        vec3 color = clamp((depth_contour * depth_contour_color), 0.0, 1.0);
+
+        if (opaque)
+            FragColor = vec4(color, 1.0);
+        else
+            FragColor = vec4(color, clamp((depth_contour), 0.0, 1.0));
+    }else{
+        FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+    }
+}  

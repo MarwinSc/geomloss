@@ -54,10 +54,18 @@ class Renderer(OrbitDragCameraWindow):
         compute_shader_code_parsed = compute_shader_code.replace("%COMPUTE_SIZE%", str(self.WORKGOUP_SIZE))
         self.compute_shader = self.ctx.compute_shader(compute_shader_code_parsed)
 
-        # create edge shader 
+        # create depth edge shader 
         vertex_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "quad_vertex.glsl")
-        fragment_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "edge_fragment.glsl")
-        self.edge_prog = self.ctx.program(
+        fragment_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "depth_edge_fragment.glsl")
+        self.depth_edge_prog = self.ctx.program(
+            vertex_shader=vertex_shader_code,
+            fragment_shader=fragment_shader_code
+        )
+
+        # create exen edge shader 
+        vertex_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "quad_vertex.glsl")
+        fragment_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "exen_edge_fragment.glsl")
+        self.exen_edge_prog = self.ctx.program(
             vertex_shader=vertex_shader_code,
             fragment_shader=fragment_shader_code
         )
@@ -99,8 +107,12 @@ class Renderer(OrbitDragCameraWindow):
         # Create buffers
         vbo = self.ctx.buffer(quad_vertices)
         ibo = self.ctx.buffer(quad_indices)
-        
-        self.edges_vao = self.ctx.vertex_array(self.edge_prog, [
+
+        self.depth_edges_vao = self.ctx.vertex_array(self.depth_edge_prog, [
+            (vbo, "2f 2f", "aPos", "aTexCoords")
+        ], ibo)
+
+        self.exen_edges_vao = self.ctx.vertex_array(self.exen_edge_prog, [
             (vbo, "2f 2f", "aPos", "aTexCoords")
         ], ibo)
 
@@ -138,17 +150,21 @@ class Renderer(OrbitDragCameraWindow):
         self.wireframe = False
         self.offset_factor = 1.0
         self.transparency = 1.0
-        self.dilation_iterations = 1
-        self.blur = False
-        self.sigma = 1.0
         ## contour
         self.contour_overlay = True
+        # depth contour
         self.render_depth_contour = False
         self.depth_contour_amp = 5.0
+        self.depth_dilation_iterations = 1
+        self.depth_blur = False
+        self.depth_sigma = 1.0
+        self.depth_opaque = False
+        # exen contour
         self.render_exen_contour = False
         self.exen_contour_amp = 1.5
-        self.exen_number_contour_lines = 3.0
-        self.opaque_contour = False
+        self.exen_dilation_iterations = 0
+        self.exen_number_contour_lines = 15.0
+        self.exen_opaque = True
         ## OT
         self.normalize_data = False
         #self.accumulate_distance = True
@@ -158,7 +174,7 @@ class Renderer(OrbitDragCameraWindow):
 
     def render(self, time: float, frametime: float):
 
-        current_fbo, back_fbo = self.fbo_1, self.fbo_2
+        self.current_fbo, self.back_fbo = self.fbo_1, self.fbo_2
 
         self.my_framebuffer.use()
         #self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE | moderngl.PROGRAM_POINT_SIZE | moderngl.BLEND)
@@ -250,75 +266,15 @@ class Renderer(OrbitDragCameraWindow):
 
         self.ctx.disable(moderngl.BLEND)
 
-        offset_v = 1.0 / (self.wnd.size[1] * self.offset_factor)
-        offset_h = 1.0 / (self.wnd.size[0] * self.offset_factor)
+        if self.render_depth_contour:
+            self.render_depth_edges()
+        else:
+            self.depth_edges_fbo.clear(0.0, 0.0, 0.0, 0.0)
 
-        current_fbo.use()
-        self.ctx.clear(0.0, 0.0, 0.0, 0.0)
-        #self.edge_prog['colorTexture'].value = 0
-        self.edge_prog['explicitEncodingTexture'].value = 1
-        self.edge_prog['depthTexture'].value = 2
-        #self.my_framebuffer.color_attachments[0].use(location=0)
-        self.my_framebuffer.color_attachments[1].use(location=1)
-        self.my_framebuffer.depth_attachment.use(location=2)
-        #self.edge_prog['bg_color'] = self.bg_color
-        # contour uniforms
-        #self.edge_prog['contour_overlay'] = self.contour_overlay
-        self.edge_prog['render_depth_contour'] = self.render_depth_contour
-        self.edge_prog['depth_contour_amp'] = self.depth_contour_amp
-        self.edge_prog['render_exen_contour'] = self.render_exen_contour
-        self.edge_prog['exen_contour_amp'] = self.exen_contour_amp
-        self.edge_prog['depth_contour_color'] = self.depth_contour_color
-        self.edge_prog['exen_contour_color'] = self.exen_contour_color
-        self.edge_prog['exen_number_contour_lines'] = self.exen_number_contour_lines
-        self.edge_prog['offset_h'] = offset_h
-        self.edge_prog['offset_v'] = offset_v
-        self.edge_prog['opaque'] = self.opaque_contour
-        self.edges_vao.render(moderngl.TRIANGLES)
-
-        for i in range(self.dilation_iterations):
-
-            # switch framebuffer
-            current_fbo, back_fbo = back_fbo, current_fbo
-
-            current_fbo.use()
-            self.ctx.clear(0.0, 0.0, 0.0, 0.0)
-            self.dilation_prog['edgeTexture'].value = 0
-            back_fbo.color_attachments[0].use(location=0)
-            self.dilation_prog['parameters'] = np.r_[1, offset_h, offset_v]
-            self.dilation_vao.render(moderngl.TRIANGLES)
-
-
-        if self.blur:
-
-            #self.ctx.blend_func = (moderngl.ONE_MINUS_SRC_ALPHA, moderngl.SRC_ALPHA)
-            #self.ctx.blend_equation = moderngl.FUNC_ADD
-
-            # switch framebuffer    
-            current_fbo, back_fbo = back_fbo, current_fbo
-
-            current_fbo.use()
-            self.ctx.clear(0.0, 0.0, 0.0, 0.0)
-            self.gaussian_prog['Texture'].value = 0
-            back_fbo.color_attachments[0].use(location=0)
-            self.gaussian_prog['offset_h'] = offset_h
-            self.gaussian_prog['offset_v'] = offset_v
-            self.gaussian_prog['dir'] = np.r_[1.0, 0.0]
-            self.gaussian_prog['sigma'] = self.sigma
-            self.gaussia_vao.render(moderngl.TRIANGLES)
-
-            # switch framebuffer
-            current_fbo, back_fbo = back_fbo, current_fbo
-
-            current_fbo.use()
-            self.ctx.clear(0.0, 0.0, 0.0, 0.0)
-            self.gaussian_prog['Texture'].value = 0
-            back_fbo.color_attachments[0].use(location=0)
-            self.gaussian_prog['offset_h'] = offset_h
-            self.gaussian_prog['offset_v'] = offset_v
-            self.gaussian_prog['dir'] = np.r_[0.0, 1.0]
-            self.gaussian_prog['sigma'] = self.sigma
-            self.gaussia_vao.render(moderngl.TRIANGLES)
+        if self.render_exen_contour:
+            self.render_exen_edges()
+        else:
+            self.exen_edges_fbo.clear(0.0, 0.0, 0.0, 0.0)
 
         self.ctx.enable(moderngl.BLEND)
 
@@ -327,13 +283,16 @@ class Renderer(OrbitDragCameraWindow):
 
         self.composite_prog['contour_overlay'] = self.contour_overlay
         self.composite_prog['colorTexture'].value = 0
-        self.composite_prog['edgesTexture'].value = 1
+        self.composite_prog['depthEdgesTexture'].value = 1
+        self.composite_prog['exenEdgesTexture'].value = 2
+
         if self.color_distance:
             self.my_framebuffer.color_attachments[1].use(location=0)
         else:
             self.my_framebuffer.color_attachments[0].use(location=0)
         # todo change when using blur
-        current_fbo.color_attachments[0].use(location=1)
+        self.depth_edges_fbo.color_attachments[0].use(location=1)
+        self.exen_edges_fbo.color_attachments[0].use(location=2)
 
         self.ctx.wireframe = self.wireframe
         
@@ -350,7 +309,141 @@ class Renderer(OrbitDragCameraWindow):
 
         self.render_ui()
 
+    def render_depth_edges(self):
+
+        offset_v = 1.0 / (self.wnd.size[1] * self.offset_factor)
+        offset_h = 1.0 / (self.wnd.size[0] * self.offset_factor)
+
+        # switch framebuffer
+        self.current_fbo, self.back_fbo = self.back_fbo, self.current_fbo
+
+        self.current_fbo.use()
+        self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+
+        self.depth_edge_prog['depthTexture'].value = 0
+        self.my_framebuffer.depth_attachment.use(location=0)
+        self.depth_edge_prog['depth_contour_amp'] = self.depth_contour_amp
+        self.depth_edge_prog['depth_contour_color'] = self.depth_contour_color
+        self.depth_edge_prog['offset_h'] = offset_h
+        self.depth_edge_prog['offset_v'] = offset_v
+        self.depth_edge_prog['opaque'] = self.depth_opaque
+        self.depth_edges_vao.render(moderngl.TRIANGLES)
+
+        for i in range(self.depth_dilation_iterations):
+
+            # switch framebuffer
+            self.current_fbo, self.back_fbo = self.back_fbo, self.current_fbo
+
+            self.current_fbo.use()
+            self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+            self.dilation_prog['edgeTexture'].value = 0
+            self.back_fbo.color_attachments[0].use(location=0)
+            self.dilation_prog['parameters'] = np.r_[1, offset_h, offset_v]
+            self.dilation_vao.render(moderngl.TRIANGLES)
+
+        if self.depth_blur:
+
+            #self.ctx.blend_func = (moderngl.ONE_MINUS_SRC_ALPHA, moderngl.SRC_ALPHA)
+            #self.ctx.blend_equation = moderngl.FUNC_ADD
+
+            # switch framebuffer
+            self.current_fbo, self.back_fbo = self.back_fbo, self.current_fbo
+
+            self.current_fbo.use()
+            self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+            self.gaussian_prog['Texture'].value = 0
+            self.back_fbo.color_attachments[0].use(location=0)
+            self.gaussian_prog['offset_h'] = offset_h
+            self.gaussian_prog['offset_v'] = offset_v
+            self.gaussian_prog['dir'] = np.r_[1.0, 0.0]
+            self.gaussian_prog['sigma'] = self.depth_sigma
+            self.gaussian_prog['kernelSize'] = 5
+            self.gaussia_vao.render(moderngl.TRIANGLES)
+
+            # switch framebuffer
+            self.current_fbo, self.back_fbo = self.back_fbo, self.current_fbo
+
+            self.current_fbo.use()
+            self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+            self.gaussian_prog['Texture'].value = 0
+            self.back_fbo.color_attachments[0].use(location=0)
+            self.gaussian_prog['offset_h'] = offset_h
+            self.gaussian_prog['offset_v'] = offset_v
+            self.gaussian_prog['dir'] = np.r_[0.0, 1.0]
+            self.gaussian_prog['sigma'] = self.depth_sigma
+            self.gaussian_prog['kernelSize'] = 5
+            self.gaussia_vao.render(moderngl.TRIANGLES)
+
+        self.ctx.copy_framebuffer(self.depth_edges_fbo, self.current_fbo)
+
+    def render_exen_edges(self):
+
+        offset_v = 1.0 / (self.wnd.size[1] * self.offset_factor)
+        offset_h = 1.0 / (self.wnd.size[0] * self.offset_factor)
+
+        # switch framebuffer
+        self.current_fbo, self.back_fbo = self.back_fbo, self.current_fbo
+
+        ##### gaussian blur the exen texture before edge detection
+
+        self.current_fbo.use()
+        self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+        self.gaussian_prog['Texture'].value = 0
+        self.my_framebuffer.color_attachments[1].use(location=0)
+        self.gaussian_prog['offset_h'] = offset_h
+        self.gaussian_prog['offset_v'] = offset_v
+        self.gaussian_prog['dir'] = np.r_[1.0, 0.0]
+        self.gaussian_prog['sigma'] = 20.0
+        self.gaussian_prog['kernelSize'] = 5
+        self.gaussia_vao.render(moderngl.TRIANGLES)
+
+        # switch framebuffer
+        self.current_fbo, self.back_fbo = self.back_fbo, self.current_fbo
+
+        self.current_fbo.use()
+        self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+        self.gaussian_prog['Texture'].value = 0
+        self.back_fbo.color_attachments[0].use(location=0)
+        self.gaussian_prog['offset_h'] = offset_h
+        self.gaussian_prog['offset_v'] = offset_v
+        self.gaussian_prog['dir'] = np.r_[0.0, 1.0]
+        self.gaussian_prog['sigma'] = 20.0
+        self.gaussian_prog['kernelSize'] = 5
+        self.gaussia_vao.render(moderngl.TRIANGLES)
+
+        #####
+
+        # switch framebuffer
+        self.current_fbo, self.back_fbo = self.back_fbo, self.current_fbo
+
+        self.current_fbo.use()
+        self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+
+        self.exen_edge_prog['explicitEncodingTexture'].value = 0
+        self.back_fbo.color_attachments[0].use(location=0)
+        self.exen_edge_prog['exen_contour_amp'] = self.exen_contour_amp
+        self.exen_edge_prog['exen_contour_color'] = self.exen_contour_color
+        self.exen_edge_prog['exen_number_contour_lines'] = self.exen_number_contour_lines
+        self.exen_edge_prog['offset_h'] = offset_h
+        self.exen_edge_prog['offset_v'] = offset_v
+        self.exen_edge_prog['opaque'] = self.exen_opaque
+        self.exen_edges_vao.render(moderngl.TRIANGLES)
+
+        for i in range(self.exen_dilation_iterations):
+
+            # switch framebuffer
+            self.current_fbo, self.back_fbo = self.back_fbo, self.current_fbo
+
+            self.current_fbo.use()
+            self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+            self.dilation_prog['edgeTexture'].value = 0
+            self.back_fbo.color_attachments[0].use(location=0)
+            self.dilation_prog['parameters'] = np.r_[1, offset_h, offset_v]
+            self.dilation_vao.render(moderngl.TRIANGLES)
+
+        self.ctx.copy_framebuffer(self.exen_edges_fbo, self.current_fbo)
     
+
     def render_ui(self):
         super().render_ui()
         imgui.new_frame()
@@ -419,24 +512,28 @@ class Renderer(OrbitDragCameraWindow):
             _, self.point_size = imgui.slider_float("P", self.point_size, 1.0, 30.0)
             _, self.varying_size = imgui.checkbox("Varying Size", self.varying_size)
             _, self.wireframe = imgui.checkbox("Wireframe", self.wireframe)
-            _, self.dilation_iterations = imgui.slider_int("Dilation Iterations", self.dilation_iterations, 0, 7)
-            _, self.blur = imgui.checkbox("Blur", self.blur)
-            _, self.sigma = imgui.slider_float("Sigma", self.sigma, 0.1, 10.0)
             # contour 
             _, self.contour_overlay = imgui.checkbox("Ex Contour Overlay", self.contour_overlay)
             _, self.render_depth_contour = imgui.checkbox("Render Depth Contour", self.render_depth_contour)
             _, self.render_exen_contour = imgui.checkbox("Render Ex Contour", self.render_exen_contour)
+            _, self.offset_factor = imgui.slider_float("Offset Factor", self.offset_factor, 0.1, 2.0)
 
-            contour_params_ui, _ = imgui.collapsing_header("Contour Parameters", True)
-            if contour_params_ui:
-                _, self.opaque_contour = imgui.checkbox("Opaque", self.opaque_contour)
-                _, self.depth_contour_amp = imgui.slider_float("CD", self.depth_contour_amp, 0.0, 100.0)
-                _, self.exen_contour_amp = imgui.slider_float("CEX", self.exen_contour_amp, 0.0, 2.0)
+            depth_contour_ui, _ = imgui.collapsing_header("Depth Contour", True)
+            if depth_contour_ui:
                 _, self.depth_contour_color = imgui.color_edit3("Depth Color", *self.depth_contour_color)
-                _, self.exen_contour_color = imgui.color_edit3("Explicit Encoding Color", *self.exen_contour_color)
-                _, self.offset_factor = imgui.slider_float("Offset Factor", self.offset_factor, 0.1, 2.0)
-                _, self.exen_number_contour_lines = imgui.input_int("Ex Contour Lines", self.exen_number_contour_lines, 1.0, 100.0)
+                _, self.depth_contour_amp = imgui.slider_float("CD", self.depth_contour_amp, 0.0, 100.0)
+                _, self.depth_dilation_iterations = imgui.slider_int("D Dilation Iterations", self.depth_dilation_iterations, 0, 7)
+                _, self.depth_blur = imgui.checkbox("Blur", self.depth_blur)
+                _, self.depth_sigma = imgui.slider_float("Sigma", self.depth_sigma, 0.1, 10.0)
+                _, self.depth_opaque = imgui.checkbox("D Opaque", self.depth_opaque)
 
+            exen_contour_ui, _ = imgui.collapsing_header("Exen Contour", True)
+            if exen_contour_ui:
+                _, self.exen_contour_color = imgui.color_edit3("Explicit Encoding Color", *self.exen_contour_color)
+                _, self.exen_contour_amp = imgui.slider_float("CEX", self.exen_contour_amp, 0.0, 5.0)
+                _, self.exen_number_contour_lines = imgui.input_int("Ex Contour Lines", self.exen_number_contour_lines, 1.0, 100.0)
+                _, self.exen_dilation_iterations = imgui.slider_int("E Dilation Iterations", self.exen_dilation_iterations, 0, 7)
+                _, self.exen_opaque = imgui.checkbox("E Opaque", self.exen_opaque)
 
         optimal_transport, _ = imgui.collapsing_header("Optimal Transport", True)
         if optimal_transport:

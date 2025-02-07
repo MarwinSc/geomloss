@@ -159,6 +159,12 @@ class OrbitDragCameraWindow(mglw.WindowConfig):
         fbo2_tex = self.ctx.texture((w, h), 4)
         self.fbo_2 = self.ctx.framebuffer(color_attachments=[fbo2_tex])
 
+        depth_edges_tex = self.ctx.texture((w, h), 4)
+        self.depth_edges_fbo = self.ctx.framebuffer(color_attachments=[depth_edges_tex])
+
+        exen_edges_tex = self.ctx.texture((w, h), 4)
+        self.exen_edges_fbo = self.ctx.framebuffer(color_attachments=[exen_edges_tex])
+
     def resize(self, width: int, height: int):
         self.camera.projection.update(aspect_ratio=self.wnd.aspect_ratio)
         self.imgui.resize(width, height)
@@ -174,6 +180,12 @@ class OrbitDragCameraWindow(mglw.WindowConfig):
 
         fbo2_tex = self.ctx.texture((width, height), 4)
         self.fbo_2 = self.ctx.framebuffer(color_attachments=[fbo2_tex])
+
+        depth_edges_tex = self.ctx.texture((width, height), 4)
+        self.depth_edges_fbo = self.ctx.framebuffer(color_attachments=[depth_edges_tex])
+
+        exen_edges_tex = self.ctx.texture((width, height), 4)
+        self.exen_edges_fbo = self.ctx.framebuffer(color_attachments=[exen_edges_tex])
 
     def key_event(self, key, action, modifiers):
         keys = self.wnd.keys

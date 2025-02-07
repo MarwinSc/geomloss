@@ -13,8 +13,7 @@ uniform float sigma;
 //declare uniforms
 uniform vec2 dir;
 
-const int kernelSize = 9; // Total number of samples (must be odd)
-const int halfKernel = kernelSize / 2; // Number of samples on each side
+uniform int kernelSize; // Total number of samples (must be odd)
 
 // Function to compute Gaussian weight
 float gaussian(float x, float sigma) {
@@ -38,6 +37,8 @@ void main() {
     FragColor = sum;
 
 	float weightSum = 0.0; // Normalization factor
+
+	int halfKernel = kernelSize / 2; // Number of samples on each side
 
     // Compute Gaussian weights dynamically
     for (int i = -halfKernel; i <= halfKernel; i++) {
