@@ -70,6 +70,14 @@ class Renderer(OrbitDragCameraWindow):
             fragment_shader=fragment_shader_code
         )
 
+        # create dilation shader 
+        vertex_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "quad_vertex.glsl")
+        fragment_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "dilation_fragment.glsl")
+        self.dilation_prog = self.ctx.program(
+            vertex_shader=vertex_shader_code,
+            fragment_shader=fragment_shader_code
+        )
+
         # create composite shader 
         vertex_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "quad_vertex.glsl")
         fragment_shader_code = load_shader(pathlib.Path(__file__).parents[1] / "shaders" / "composite_fragment.glsl")
@@ -100,6 +108,10 @@ class Renderer(OrbitDragCameraWindow):
             (vbo, "2f 2f", "aPos", "aTexCoords")
         ], ibo)
 
+        self.dilation_vao = self.ctx.vertex_array(self.dilation_prog, [
+            (vbo, "2f 2f", "aPos", "aTexCoords")
+        ], ibo)
+
         self.composite_vao = self.ctx.vertex_array(self.composite_prog, [
             (vbo, "2f 2f", "aPos", "aTexCoords")
         ], ibo)
@@ -126,28 +138,34 @@ class Renderer(OrbitDragCameraWindow):
         self.wireframe = False
         self.offset_factor = 1.0
         self.transparency = 1.0
+        self.dilation_iterations = 1
+        self.blur = False
+        self.sigma = 1.0
         ## contour
         self.contour_overlay = True
         self.render_depth_contour = False
         self.depth_contour_amp = 5.0
         self.render_exen_contour = False
-        self.exen_contour_amp = 1.0
-        self.exen_number_contour_lines = 10.0
+        self.exen_contour_amp = 1.5
+        self.exen_number_contour_lines = 3.0
+        self.opaque_contour = False
         ## OT
         self.normalize_data = False
-        self.accumulate_distance = True
+        #self.accumulate_distance = True
         self.ot_blur = 0.001
         self.ot_scaling = 0.7
         self.ot_trunctate = 5
 
     def render(self, time: float, frametime: float):
 
+        current_fbo, back_fbo = self.fbo_1, self.fbo_2
+
         self.my_framebuffer.use()
         #self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE | moderngl.PROGRAM_POINT_SIZE | moderngl.BLEND)
         self.ctx.clear(self.bg_color[0], self.bg_color[1], self.bg_color[2], 1.0)
         #self.ctx.clear(0.5, 0.5, 0.5, 1.0)
         
-        self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.CULL_FACE | moderngl.BLEND | moderngl.PROGRAM_POINT_SIZE)
+        self.ctx.enable_only(moderngl.DEPTH_TEST | moderngl.BLEND | moderngl.PROGRAM_POINT_SIZE)
         self.ctx.blend_func = moderngl.DEFAULT_BLENDING
         self.ctx.blend_equation = moderngl.FUNC_ADD
         
@@ -230,10 +248,13 @@ class Renderer(OrbitDragCameraWindow):
             self.points_b.render(mode=self.ctx.POINTS)
 
 
-        self.edges_framebuffer.use()
+        self.ctx.disable(moderngl.BLEND)
 
-        # bind the default framebuffer
-        self.ctx.clear(1.0, 1.0, 1.0, 0.0)
+        offset_v = 1.0 / (self.wnd.size[1] * self.offset_factor)
+        offset_h = 1.0 / (self.wnd.size[0] * self.offset_factor)
+
+        current_fbo.use()
+        self.ctx.clear(0.0, 0.0, 0.0, 0.0)
         #self.edge_prog['colorTexture'].value = 0
         self.edge_prog['explicitEncodingTexture'].value = 1
         self.edge_prog['depthTexture'].value = 2
@@ -250,20 +271,59 @@ class Renderer(OrbitDragCameraWindow):
         self.edge_prog['depth_contour_color'] = self.depth_contour_color
         self.edge_prog['exen_contour_color'] = self.exen_contour_color
         self.edge_prog['exen_number_contour_lines'] = self.exen_number_contour_lines
-        self.edge_prog['offset_h'] = 1.0 / (self.wnd.size[0] * self.offset_factor)
-        self.edge_prog['offset_v'] = 1.0 / (self.wnd.size[1] * self.offset_factor)
-
+        self.edge_prog['offset_h'] = offset_h
+        self.edge_prog['offset_v'] = offset_v
+        self.edge_prog['opaque'] = self.opaque_contour
         self.edges_vao.render(moderngl.TRIANGLES)
 
-        #self.blur_framebuffer.use()
-        #self.ctx.clear(1.0, 1.0, 1.0, 0.0)
-        #self.gaussian_prog['Texture'].value = 0
-        #self.edges_framebuffer.color_attachments[0].use(location=0)
-        #self.gaussian_prog['offset_h'] = 1.0 / (self.wnd.size[0] * self.offset_factor)
-        #self.gaussian_prog['offset_v'] = 1.0 / (self.wnd.size[1] * self.offset_factor)
-        #self.gaussia_vao.render(moderngl.TRIANGLES)
+        for i in range(self.dilation_iterations):
+
+            # switch framebuffer
+            current_fbo, back_fbo = back_fbo, current_fbo
+
+            current_fbo.use()
+            self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+            self.dilation_prog['edgeTexture'].value = 0
+            back_fbo.color_attachments[0].use(location=0)
+            self.dilation_prog['parameters'] = np.r_[1, offset_h, offset_v]
+            self.dilation_vao.render(moderngl.TRIANGLES)
+
+
+        if self.blur:
+
+            #self.ctx.blend_func = (moderngl.ONE_MINUS_SRC_ALPHA, moderngl.SRC_ALPHA)
+            #self.ctx.blend_equation = moderngl.FUNC_ADD
+
+            # switch framebuffer    
+            current_fbo, back_fbo = back_fbo, current_fbo
+
+            current_fbo.use()
+            self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+            self.gaussian_prog['Texture'].value = 0
+            back_fbo.color_attachments[0].use(location=0)
+            self.gaussian_prog['offset_h'] = offset_h
+            self.gaussian_prog['offset_v'] = offset_v
+            self.gaussian_prog['dir'] = np.r_[1.0, 0.0]
+            self.gaussian_prog['sigma'] = self.sigma
+            self.gaussia_vao.render(moderngl.TRIANGLES)
+
+            # switch framebuffer
+            current_fbo, back_fbo = back_fbo, current_fbo
+
+            current_fbo.use()
+            self.ctx.clear(0.0, 0.0, 0.0, 0.0)
+            self.gaussian_prog['Texture'].value = 0
+            back_fbo.color_attachments[0].use(location=0)
+            self.gaussian_prog['offset_h'] = offset_h
+            self.gaussian_prog['offset_v'] = offset_v
+            self.gaussian_prog['dir'] = np.r_[0.0, 1.0]
+            self.gaussian_prog['sigma'] = self.sigma
+            self.gaussia_vao.render(moderngl.TRIANGLES)
+
+        self.ctx.enable(moderngl.BLEND)
 
         self.ctx.screen.use()
+        self.ctx.clear(self.bg_color[0], self.bg_color[1], self.bg_color[2], 1.0)
 
         self.composite_prog['contour_overlay'] = self.contour_overlay
         self.composite_prog['colorTexture'].value = 0
@@ -272,9 +332,8 @@ class Renderer(OrbitDragCameraWindow):
             self.my_framebuffer.color_attachments[1].use(location=0)
         else:
             self.my_framebuffer.color_attachments[0].use(location=0)
-            
         # todo change when using blur
-        self.edges_framebuffer.color_attachments[0].use(location=1)
+        current_fbo.color_attachments[0].use(location=1)
 
         self.ctx.wireframe = self.wireframe
         
@@ -341,7 +400,7 @@ class Renderer(OrbitDragCameraWindow):
                 imgui.tree_pop()
 
                 _, self.normalize_data = imgui.checkbox("Normalize Data", self.normalize_data)
-                _, self.accumulate_distance = imgui.checkbox("Accumulate Distance", self.accumulate_distance)
+                #_, self.accumulate_distance = imgui.checkbox("Accumulate Distance", self.accumulate_distance)
 
         run_assign = imgui.button("Build Correspondence")
         if run_assign:
@@ -355,11 +414,14 @@ class Renderer(OrbitDragCameraWindow):
 
         renderer_ui, _ = imgui.collapsing_header("Renderer", True)
         if renderer_ui:
+            _, self.bg_color = imgui.color_edit3("Background Color", *self.bg_color)
+            _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
             _, self.point_size = imgui.slider_float("P", self.point_size, 1.0, 30.0)
             _, self.varying_size = imgui.checkbox("Varying Size", self.varying_size)
-            _, self.bg_color = imgui.color_edit3("Background Color", *self.bg_color)
             _, self.wireframe = imgui.checkbox("Wireframe", self.wireframe)
-            _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
+            _, self.dilation_iterations = imgui.slider_int("Dilation Iterations", self.dilation_iterations, 0, 7)
+            _, self.blur = imgui.checkbox("Blur", self.blur)
+            _, self.sigma = imgui.slider_float("Sigma", self.sigma, 0.1, 10.0)
             # contour 
             _, self.contour_overlay = imgui.checkbox("Ex Contour Overlay", self.contour_overlay)
             _, self.render_depth_contour = imgui.checkbox("Render Depth Contour", self.render_depth_contour)
@@ -367,6 +429,7 @@ class Renderer(OrbitDragCameraWindow):
 
             contour_params_ui, _ = imgui.collapsing_header("Contour Parameters", True)
             if contour_params_ui:
+                _, self.opaque_contour = imgui.checkbox("Opaque", self.opaque_contour)
                 _, self.depth_contour_amp = imgui.slider_float("CD", self.depth_contour_amp, 0.0, 100.0)
                 _, self.exen_contour_amp = imgui.slider_float("CEX", self.exen_contour_amp, 0.0, 2.0)
                 _, self.depth_contour_color = imgui.color_edit3("Depth Color", *self.depth_contour_color)
@@ -406,10 +469,11 @@ class Renderer(OrbitDragCameraWindow):
 
     def run_debug(self):
         filelist = {"files": [
-                                pathlib.Path(__file__).parents[3] / "data/statues/greif.ply",
-                                pathlib.Path(__file__).parents[3] / "data/statues/loewe.ply"
+                                pathlib.Path(__file__).parents[3] / "data/loewe/lion2.ply",
+                                pathlib.Path(__file__).parents[3] / "data/loewe/lion1.ply"
                              ]         
                     }
+        self.normalize_data = True
         self.generic_run(filelist)
 
     def run_ot(self):
@@ -427,7 +491,7 @@ class Renderer(OrbitDragCameraWindow):
             "normalize_data": self.normalize_data,
             "autograd": True,
             "sort_emd": False,
-            "accumulate_distance": self.accumulate_distance
+            #"accumulate_distance": self.accumulate_distance
         }
 
         self.ens = Ensemble(filelist, conf)

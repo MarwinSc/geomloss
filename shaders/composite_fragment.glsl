@@ -17,6 +17,7 @@ void main()
         FragColor = vec4(mix(color.xyz, edges.xyz, edges.w), 1.0);
     }
     else{
-        FragColor = vec4(edges.xyz, 1.0);
+        //FragColor = vec4(vec3(edges.w), 1.0);
+        FragColor = edges;
     }
 }   

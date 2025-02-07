@@ -153,11 +153,11 @@ class OrbitDragCameraWindow(mglw.WindowConfig):
         depth = self.ctx.depth_texture((w, h))
         self.my_framebuffer = self.ctx.framebuffer(color_attachments=[color, explicit_encoding], depth_attachment=depth)
 
-        edges = self.ctx.texture((w, h), 4)
-        self.edges_framebuffer = self.ctx.framebuffer(color_attachments=[edges])
+        fbo1_tex = self.ctx.texture((w, h), 4)
+        self.fbo_1 = self.ctx.framebuffer(color_attachments=[fbo1_tex])
 
-        blur = self.ctx.texture((w, h), 4)
-        self.blur_framebuffer = self.ctx.framebuffer(color_attachments=[blur])
+        fbo2_tex = self.ctx.texture((w, h), 4)
+        self.fbo_2 = self.ctx.framebuffer(color_attachments=[fbo2_tex])
 
     def resize(self, width: int, height: int):
         self.camera.projection.update(aspect_ratio=self.wnd.aspect_ratio)
@@ -169,11 +169,11 @@ class OrbitDragCameraWindow(mglw.WindowConfig):
         depth = self.ctx.depth_texture((width, height))
         self.my_framebuffer = self.ctx.framebuffer(color_attachments=[color, explicit_encoding], depth_attachment=depth)
 
-        edges = self.ctx.texture((width, height), 4)
-        self.edges_framebuffer = self.ctx.framebuffer(color_attachments=[edges])
+        fbo1_tex = self.ctx.texture((width, height), 4)
+        self.fbo_1 = self.ctx.framebuffer(color_attachments=[fbo1_tex])
 
-        blur = self.ctx.texture((width, height), 4)
-        self.blur_framebuffer = self.ctx.framebuffer(color_attachments=[blur])
+        fbo2_tex = self.ctx.texture((width, height), 4)
+        self.fbo_2 = self.ctx.framebuffer(color_attachments=[fbo2_tex])
 
     def key_event(self, key, action, modifiers):
         keys = self.wnd.keys

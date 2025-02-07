@@ -8,25 +8,49 @@ uniform sampler2D Texture;
 uniform float offset_h;
 uniform float offset_v;
 
-const float kernel_5[25] = float[](
-    1,    4,    6,    4,    1,
-    4,   16,   24,   16,    4,
-    6,   24,   36,   24,    6,
-    4,   16,   24,   16,    4,
-    1,    4,    6,    4,    1
-);
+uniform float sigma;
 
-void main()
-{
-    vec4 blurredColor = vec4(0.0);
-    for (int i = -2; i <= 2; i++) {
-        for (int j = -2; j <= 2; j++) {
-            vec2 offset = vec2(j, -i) * vec2(offset_h, offset_v);
-            blurredColor += texture(Texture, TexCoords + offset) * ((1.0/256.0) * kernel_5[(i+2) * (j+2) + (j+2)]);
-        }
+//declare uniforms
+uniform vec2 dir;
+
+const int kernelSize = 9; // Total number of samples (must be odd)
+const int halfKernel = kernelSize / 2; // Number of samples on each side
+
+// Function to compute Gaussian weight
+float gaussian(float x, float sigma) {
+    return exp(-(x * x) / (2.0 * sigma * sigma)) / (sqrt(2.0 * 3.141592653589793) * sigma);
+}
+
+void main() {
+	//this will be our RGBA sum
+	vec4 sum = vec4(0.0);
+	
+	//our original texcoord for this fragment
+	vec2 tc = TexCoords.st;
+    
+	//the direction of our blur
+	//(1.0, 0.0) -> x-axis blur
+	//(0.0, 1.0) -> y-axis blur
+	float hstep = dir.x;
+	float vstep = dir.y;
+
+    // Output the final color
+    FragColor = sum;
+
+	float weightSum = 0.0; // Normalization factor
+
+    // Compute Gaussian weights dynamically
+    for (int i = -halfKernel; i <= halfKernel; i++) {
+        float x = float(i);
+        
+        float weight = gaussian(x, sigma);
+        
+        vec2 offset = vec2(x * offset_h * hstep, x * offset_v * vstep);
+        sum += texture(Texture, tc + offset) * weight;
+        
+        weightSum += weight;
     }
 
-    blurredColor = clamp(blurredColor * 2.0, 0.0, 1.0);
-
-    FragColor = blurredColor;
-}  
+    // Normalize the final color
+    FragColor = sum / weightSum;
+}
