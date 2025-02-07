@@ -150,6 +150,10 @@ class Renderer(OrbitDragCameraWindow):
         self.wireframe = False
         self.offset_factor = 1.0
         self.transparency = 1.0
+        self.fps = 0.0
+        self.frame_count = 0
+        self.last_time = 0.0
+        self.current_time = 0.0
         ## contour
         self.contour_overlay = True
         # depth contour
@@ -173,6 +177,12 @@ class Renderer(OrbitDragCameraWindow):
         self.ot_trunctate = 5
 
     def render(self, time: float, frametime: float):
+
+        self.frame_count += 1
+        if (time - self.last_time) > 1.0:
+            self.fps = self.frame_count / (time - self.last_time)
+            self.last_time = time
+            self.frame_count = 0
 
         self.current_fbo, self.back_fbo = self.fbo_1, self.fbo_2
 
@@ -262,7 +272,6 @@ class Renderer(OrbitDragCameraWindow):
             self.prog['varying_size'] = self.varying_size
             self.prog['transparency'] = self.transparency
             self.points_b.render(mode=self.ctx.POINTS)
-
 
         self.ctx.disable(moderngl.BLEND)
 
@@ -507,6 +516,7 @@ class Renderer(OrbitDragCameraWindow):
 
         renderer_ui, _ = imgui.collapsing_header("Renderer", True)
         if renderer_ui:
+            imgui.text(str(self.fps))
             _, self.bg_color = imgui.color_edit3("Background Color", *self.bg_color)
             _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
             _, self.point_size = imgui.slider_float("P", self.point_size, 1.0, 30.0)
