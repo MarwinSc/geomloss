@@ -1,7 +1,7 @@
 
 import numpy as np
 
-from scene.model import Model
+from scene.model import Model, Uniform_reference_model
 from optimal_transport.__main__ import otot, ot_with_reference
 
 class Ensemble:
@@ -54,8 +54,14 @@ class Ensemble:
             if self.conf["normalize_data"]:
                 norm_params = None
             self.models.append(model)
-
             self.num_points.append(model.num_points)
+
+        if self.conf['uniform_reference']:
+            n = self.conf['reference_n']
+            model = Uniform_reference_model(n, self.conf)
+            model.build()
+            self.models.insert(0, model)
+            self.num_points.insert(0, n)
 
     def ot_reference(self, conf):
         """

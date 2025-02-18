@@ -408,10 +408,7 @@ def ot_octree_autodiff(source, target, conf):
         torch.cuda.synchronize()
     start = time.time()
 
-    blur = conf["blur"]
-    p = 2
-
-    Loss = Samplesloss_octree("sinkhorn", p=p, blur=blur, scaling=conf["scaling"], truncate=conf["truncate"], backend="multiscale", potentials=False)#, reach=1)
+    Loss = Samplesloss_octree("sinkhorn", p=2, blur=conf["blur"], reach=conf["reach"], scaling=conf["scaling"], truncate=conf["truncate"], backend="multiscale", potentials=False)#, reach=1)
 
     emd = Loss(source, target)
     [grad_source] = torch.autograd.grad(emd, [source.points])

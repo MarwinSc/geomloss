@@ -154,6 +154,7 @@ class Renderer(OrbitDragCameraWindow):
         self.frame_count = 0
         self.last_time = 0.0
         self.current_time = 0.0
+        self.easyease = True
         ## contour
         self.contour_overlay = True
         # depth contour
@@ -175,6 +176,9 @@ class Renderer(OrbitDragCameraWindow):
         self.ot_blur = 0.001
         self.ot_scaling = 0.7
         self.ot_trunctate = 5
+        self.ot_reach = 10.0
+        self.uniform_reference = True
+        self.reference_n = 300000
 
     def render(self, time: float, frametime: float):
 
@@ -183,6 +187,10 @@ class Renderer(OrbitDragCameraWindow):
             self.fps = self.frame_count / (time - self.last_time)
             self.last_time = time
             self.frame_count = 0
+
+        if self.lock_states:
+            if self.transition_state != self.color_state:
+                self.color_state = self.transition_state
 
         self.current_fbo, self.back_fbo = self.fbo_1, self.fbo_2
 
@@ -242,11 +250,6 @@ class Renderer(OrbitDragCameraWindow):
 
                 self.current_assignment -= 1
 
-
-            if self.lock_states:
-                if self.transition_state != self.color_state:
-                    self.color_state = self.transition_state
-
             # Bind the appropriate buffers to the compute shader
             self.source_buffer.bind_to_storage_buffer(0)
             self.compute_buffer_b.bind_to_storage_buffer(1)
@@ -259,8 +262,8 @@ class Renderer(OrbitDragCameraWindow):
             #    #TODO
             #    print(f"exception: {e}")
             #self.compute_shader['max_distance'] = self.max_distance
-            self.compute_shader['transition_state'] = self.transition_state * (self.number_of_files - 1) - self.current_assignment
-            self.compute_shader['color_state'] = self.color_state * (self.number_of_files - 1) - self.current_assignment
+            self.compute_shader['transition_state'] = self.get_transition_state()
+            self.compute_shader['color_state'] = self.get_color_state()
             # always take the number of points from the reference model
             self.compute_shader.run(group_x = int(np.ceil(self.num_points[0] / self.WORKGOUP_SIZE)))
 
@@ -503,6 +506,8 @@ class Renderer(OrbitDragCameraWindow):
 
                 _, self.normalize_data = imgui.checkbox("Normalize Data", self.normalize_data)
                 #_, self.accumulate_distance = imgui.checkbox("Accumulate Distance", self.accumulate_distance)
+                _, self.uniform_reference = imgui.checkbox("Uniform Reference", self.uniform_reference)
+                _, self.reference_n = imgui.input_int("N", self.reference_n)
 
         run_assign = imgui.button("Build Correspondence")
         if run_assign:
@@ -522,6 +527,8 @@ class Renderer(OrbitDragCameraWindow):
             _, self.point_size = imgui.slider_float("P", self.point_size, 1.0, 30.0)
             _, self.varying_size = imgui.checkbox("Varying Size", self.varying_size)
             _, self.wireframe = imgui.checkbox("Wireframe", self.wireframe)
+            _, self.color_distance = imgui.checkbox("Color Distance", self.color_distance)
+            _, self.easyease = imgui.checkbox("Ease", self.easyease)
             # contour 
             _, self.contour_overlay = imgui.checkbox("Ex Contour Overlay", self.contour_overlay)
             _, self.render_depth_contour = imgui.checkbox("Render Depth Contour", self.render_depth_contour)
@@ -550,10 +557,7 @@ class Renderer(OrbitDragCameraWindow):
             _, self.ot_blur = imgui.input_float("Blur", self.ot_blur)
             _, self.ot_scaling = imgui.input_float("Scaling", self.ot_scaling)
             _, self.ot_trunctate = imgui.input_float("Truncate", self.ot_trunctate)
-
-        comparison, _ = imgui.collapsing_header("Comparison", True)
-        if comparison:
-            _, self.color_distance = imgui.checkbox("Color Distance", self.color_distance)
+            _, self.ot_reach = imgui.input_float("Reach", self.ot_reach)
 
 
         imgui.end()
@@ -565,12 +569,29 @@ class Renderer(OrbitDragCameraWindow):
         imgui.set_next_window_position(0, wnd_size[1]-100)
         imgui.begin("State", False, flags=imgui.WINDOW_NO_COLLAPSE)
         _, self.lock_states = imgui.checkbox("Lock", self.lock_states)
-        imgui.set_next_item_width(wnd_size[0] - (wnd_size[0] * 0.02))
-        _, self.transition_state = imgui.slider_float("Transition", self.transition_state, 0.0, 1.0)
-        imgui.set_next_item_width(wnd_size[0] - (wnd_size[0] * 0.02))
-        _, self.color_state = imgui.slider_float("Color", self.color_state, 0.0, 1.0)
-        imgui.end()
 
+        slider_width = wnd_size[0] - (wnd_size[0] * 0.02)
+
+        if self.loaded:
+            for i in range(1, self.number_of_files - 1):
+                imgui.same_line(i * (slider_width / (self.number_of_files - 1)))
+                imgui.text_colored("V", 1.0, 0.0, 0.0)
+
+        imgui.set_next_item_width(slider_width)
+        _, self.transition_state = imgui.slider_float("Transition", self.transition_state, 0.0, 1.0)
+        if self.loaded and (imgui.is_item_hovered() or imgui.is_item_active()):
+            with imgui.begin_tooltip():
+                text = round(self.transition_state / (1 / (self.number_of_files - 1)) - self.current_assignment, 3)
+                imgui.text(f"State {text}.")
+
+        imgui.set_next_item_width(slider_width)
+        _, self.color_state = imgui.slider_float("Color", self.color_state, 0.0, 1.0)
+        if self.loaded and (imgui.is_item_hovered() or imgui.is_item_active()):
+            with imgui.begin_tooltip():
+                text = round(self.color_state / (1 / (self.number_of_files - 1)) - self.current_assignment, 3)
+                imgui.text(f"Color State {text}.")
+
+        imgui.end()
         imgui.render()
         self.imgui.render(imgui.get_draw_data())
 
@@ -591,13 +612,15 @@ class Renderer(OrbitDragCameraWindow):
                 self.generic_run(filelist)
 
     def generic_run(self, filelist):
-        self.number_of_files = len(filelist['files'])
+        self.number_of_files = len(filelist['files']) + (1 if self.uniform_reference else 0)
 
         conf = {
             "octree_node_size": 1000,
             "normalize_data": self.normalize_data,
             "autograd": True,
             "sort_emd": False,
+            "uniform_reference": self.uniform_reference,
+            "reference_n": self.reference_n,
             #"accumulate_distance": self.accumulate_distance
         }
 
@@ -607,7 +630,8 @@ class Renderer(OrbitDragCameraWindow):
         conf = {
             "blur" : self.ot_blur,
             "scaling" : self.ot_scaling,
-            "truncate" : self.ot_trunctate
+            "truncate" : self.ot_trunctate,
+            "reach": self.ot_reach
         } 
         self.ens.ot_reference(conf)
         source_pos, target_pos = self.ens.compute_data
@@ -630,6 +654,28 @@ class Renderer(OrbitDragCameraWindow):
 
         self.num_points = self.ens.get_num_points()
         self.loaded = True
+
+    def get_transition_state(self):
+        
+        ts = self.transition_state * (self.number_of_files - 1) - self.current_assignment
+
+        if self.easyease:
+            return easeInOutCubic(ts)
+        else:
+            return ts
+    
+    def get_color_state(self):
+
+        cs = self.color_state * (self.number_of_files - 1) - self.current_assignment
+
+        if self.easyease:
+            return easeInOutCubic(cs)
+        else:
+            return cs
+
+def easeInOutCubic(x):
+    return 4 * x * x * x if x < 0.5 else 1 - pow(-2 * x + 2, 3) / 2
+    
 
 if __name__ == '__main__':
     Renderer.run()

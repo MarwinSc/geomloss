@@ -39,3 +39,27 @@ class Model:
         self.octree = Octree(points, self.conf["octree_node_size"], colors=colors, autograd=self.conf["autograd"])
     
         return min_coords, max_coords, midpoint
+    
+class Uniform_reference_model:
+
+    def __init__(self, n, conf):
+        self.file = "uniform_reference"
+        self.conf = conf
+        self.num_points = n
+        self.octree = None
+        self.kdtree = None
+
+    def build(self, norm_params=None):
+        if True:
+            vec = np.random.normal(size=(self.num_points, 3))
+            vec /= np.linalg.norm(vec, axis=1, keepdims=True)  # Normalize to unit sphere
+            radius = np.random.uniform(0.3, 0.5, size=(self.num_points, 1)) ** (1/3)
+            #radius = 0.25
+            points = vec * radius 
+        else:
+            points = np.random.uniform(low=-1.0, high=1.0, size=(self.num_points, 3))
+        #colors = np.random.uniform(low=0, high=1, size=(self.num_points, 3))
+        colors = np.full((self.num_points, 3), 0.5)
+        colors = np.hstack((colors, np.ones((self.num_points, 1))))
+        self.octree = Octree(points, self.conf["octree_node_size"], colors=colors, autograd=self.conf["autograd"])
+        return None, None, None
