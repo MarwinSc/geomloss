@@ -1,4 +1,5 @@
 from pathlib import Path
+import imgui.integrations
 import moderngl
 from render.base import OrbitDragCameraWindow
 from pyrr import Matrix44
@@ -155,6 +156,9 @@ class Renderer(OrbitDragCameraWindow):
         self.last_time = 0.0
         self.current_time = 0.0
         self.easyease = True
+        self.play = False
+        self.play_speed = 0.1
+        self.playback_direction = 1
         ## contour
         self.contour_overlay = True
         # depth contour
@@ -168,7 +172,7 @@ class Renderer(OrbitDragCameraWindow):
         self.render_exen_contour = False
         self.exen_contour_amp = 1.5
         self.exen_dilation_iterations = 0
-        self.exen_number_contour_lines = 15.0
+        self.exen_number_contour_lines = 5.0
         self.exen_opaque = True
         ## OT
         self.normalize_data = False
@@ -177,8 +181,12 @@ class Renderer(OrbitDragCameraWindow):
         self.ot_scaling = 0.7
         self.ot_trunctate = 5
         self.ot_reach = 10.0
-        self.uniform_reference = True
+        self.uniform_reference = False
         self.reference_n = 300000
+
+        self.font = self.imgui.io.fonts.add_font_from_file_ttf(str(pathlib.Path(__file__).parents[1] / "util" / "FontAwesome.ttf"), 16)
+        self.imgui.refresh_font_texture()
+        imgui.get_io().font_global_scale = 1.3
 
     def render(self, time: float, frametime: float):
 
@@ -187,6 +195,15 @@ class Renderer(OrbitDragCameraWindow):
             self.fps = self.frame_count / (time - self.last_time)
             self.last_time = time
             self.frame_count = 0
+
+        if self.play:
+            self.transition_state += self.play_speed * frametime * self.playback_direction
+            if self.transition_state >= 1.0:
+                self.transition_state = 1.0
+                self.playback_direction = -self.playback_direction
+            if self.transition_state <= 0.0:
+                self.transition_state = 0.0
+                self.playback_direction = -self.playback_direction
 
         if self.lock_states:
             if self.transition_state != self.color_state:
@@ -504,11 +521,6 @@ class Renderer(OrbitDragCameraWindow):
 
                 imgui.tree_pop()
 
-                _, self.normalize_data = imgui.checkbox("Normalize Data", self.normalize_data)
-                #_, self.accumulate_distance = imgui.checkbox("Accumulate Distance", self.accumulate_distance)
-                _, self.uniform_reference = imgui.checkbox("Uniform Reference", self.uniform_reference)
-                _, self.reference_n = imgui.input_int("N", self.reference_n)
-
         run_assign = imgui.button("Build Correspondence")
         if run_assign:
             util.write_filelist_json(self.files)
@@ -522,13 +534,28 @@ class Renderer(OrbitDragCameraWindow):
         renderer_ui, _ = imgui.collapsing_header("Renderer", True)
         if renderer_ui:
             imgui.text(str(self.fps))
+            _, self.play_speed = imgui.slider_float("Speed", self.play_speed, 0.00001, 0.5)
             _, self.bg_color = imgui.color_edit3("Background Color", *self.bg_color)
             _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
             _, self.point_size = imgui.slider_float("P", self.point_size, 1.0, 30.0)
             _, self.varying_size = imgui.checkbox("Varying Size", self.varying_size)
             _, self.wireframe = imgui.checkbox("Wireframe", self.wireframe)
-            _, self.color_distance = imgui.checkbox("Color Distance", self.color_distance)
             _, self.easyease = imgui.checkbox("Ease", self.easyease)
+
+        optimal_transport, _ = imgui.collapsing_header("Optimal Transport", True)
+        if optimal_transport:
+            _, self.normalize_data = imgui.checkbox("Normalize Data", self.normalize_data)
+            _, self.uniform_reference = imgui.checkbox("Uniform Reference", self.uniform_reference)
+            _, self.reference_n = imgui.input_int("N", self.reference_n)
+        
+            _, self.ot_blur = imgui.input_float("Blur", self.ot_blur)
+            _, self.ot_scaling = imgui.input_float("Scaling", self.ot_scaling)
+            _, self.ot_trunctate = imgui.input_float("Truncate", self.ot_trunctate)
+            _, self.ot_reach = imgui.input_float("Reach", self.ot_reach)
+
+        comparison, _ = imgui.collapsing_header("Comparison", True)
+        if comparison:
+            _, self.color_distance = imgui.checkbox("Color Distance", self.color_distance)
             # contour 
             _, self.contour_overlay = imgui.checkbox("Ex Contour Overlay", self.contour_overlay)
             _, self.render_depth_contour = imgui.checkbox("Render Depth Contour", self.render_depth_contour)
@@ -552,30 +579,26 @@ class Renderer(OrbitDragCameraWindow):
                 _, self.exen_dilation_iterations = imgui.slider_int("E Dilation Iterations", self.exen_dilation_iterations, 0, 7)
                 _, self.exen_opaque = imgui.checkbox("E Opaque", self.exen_opaque)
 
-        optimal_transport, _ = imgui.collapsing_header("Optimal Transport", True)
-        if optimal_transport:
-            _, self.ot_blur = imgui.input_float("Blur", self.ot_blur)
-            _, self.ot_scaling = imgui.input_float("Scaling", self.ot_scaling)
-            _, self.ot_trunctate = imgui.input_float("Truncate", self.ot_trunctate)
-            _, self.ot_reach = imgui.input_float("Reach", self.ot_reach)
-
-
         imgui.end()
 
         ##### slider
 
         wnd_size = self.wnd.size
-        imgui.set_next_window_size(wnd_size[0], 100)
-        imgui.set_next_window_position(0, wnd_size[1]-100)
+        imgui.set_next_window_size(wnd_size[0], 115)
+        imgui.set_next_window_position(0, wnd_size[1]-115)
         imgui.begin("State", False, flags=imgui.WINDOW_NO_COLLAPSE)
         _, self.lock_states = imgui.checkbox("Lock", self.lock_states)
+        imgui.same_line()
+        _, self.play = imgui.checkbox("Play", self.play)
 
         slider_width = wnd_size[0] - (wnd_size[0] * 0.02)
 
         if self.loaded:
+            imgui.push_font(self.font)
             for i in range(1, self.number_of_files - 1):
                 imgui.same_line(i * (slider_width / (self.number_of_files - 1)))
-                imgui.text_colored("V", 1.0, 0.0, 0.0)
+                imgui.text_colored("³", 1.0, 0.67, 0.4)
+            imgui.pop_font()
 
         imgui.set_next_item_width(slider_width)
         _, self.transition_state = imgui.slider_float("Transition", self.transition_state, 0.0, 1.0)
@@ -597,11 +620,13 @@ class Renderer(OrbitDragCameraWindow):
 
     def run_debug(self):
         filelist = {"files": [
+                                pathlib.Path(__file__).parents[3] / "data/loewe/lion3.ply",
                                 pathlib.Path(__file__).parents[3] / "data/loewe/lion2.ply",
                                 pathlib.Path(__file__).parents[3] / "data/loewe/lion1.ply"
                              ]         
                     }
         self.normalize_data = True
+        self.uniform_reference = False
         self.generic_run(filelist)
 
     def run_ot(self):
