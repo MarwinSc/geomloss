@@ -109,16 +109,17 @@ class Ensemble:
             compute_data[1::2,:] = np.c_[colors, assignment_distances]
             compute_data = compute_data.astype("f4")
             return compute_data
-        
-        #idx = self.idx_lut[self.idx]
-        #next_idx = self.idx_lut[self.idx + 1]
-        #print(f"from {idx} to {next_idx}")
 
+        # always get the reference data        
         reference_data = get_data_reference()
 
-        # the reference model or the idx-1th correspondence is used as source data
-        source_data = reference_data if self.idx == 0 else get_data_assignment(self.idx - 1, reference_data[0::2,:])
-        target_data = get_data_assignment(self.idx, reference_data[0::2,:])
+        # respect user choosen sorting of models
+        idx = self.idx_lut[self.idx]
+        next_idx = self.idx_lut[self.idx + 1]
+            
+        # the reference model or the idx-1th correspondence is used as data
+        source_data = reference_data if idx == 0 else get_data_assignment(idx - 1, reference_data[0::2,:])
+        target_data = reference_data if next_idx == 0 else get_data_assignment(next_idx - 1, reference_data[0::2,:])
 
         return source_data, target_data
     
