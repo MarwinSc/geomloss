@@ -143,11 +143,8 @@ class Renderer(OrbitDragCameraWindow):
         self.lock_states = True
         ## Rendering
         self.point_size = 6.0
-        self.color_distance = False
         self.varying_size = True
         self.bg_color = (1.0, 1.0, 1.0)
-        self.depth_contour_color = (0.0, 0.0, 0.0)
-        self.exen_contour_color = (0.0, 0.0, 0.0)
         self.wireframe = False
         self.offset_factor = 1.0
         self.transparency = 1.0
@@ -159,8 +156,13 @@ class Renderer(OrbitDragCameraWindow):
         self.play = False
         self.play_speed = 0.1
         self.playback_direction = 1
+        ## Comparison
+        self.color_distance = False
+        self.filter_treshold = 0.0
         ## contour
         self.contour_overlay = True
+        self.depth_contour_color = (0.0, 0.0, 0.0)
+        self.exen_contour_color = (0.0, 0.0, 0.0)
         # depth contour
         self.render_depth_contour = False
         self.depth_contour_amp = 5.0
@@ -221,6 +223,8 @@ class Renderer(OrbitDragCameraWindow):
         self.ctx.blend_equation = moderngl.FUNC_ADD
         
         if self.loaded:
+
+            # TODO missing colors here.
             
             # load next model
             if self.transition_state > (self.current_assignment + 1) * (1/(self.number_of_files - 1)):
@@ -289,8 +293,11 @@ class Renderer(OrbitDragCameraWindow):
 
             self.prog['point_size'] = self.point_size
             #self.prog['time'].value = time
+            self.prog['color_state'] = self.get_color_state()
             self.prog['varying_size'] = self.varying_size
             self.prog['transparency'] = self.transparency
+            self.prog['filter_treshold'] = self.filter_treshold
+
             self.points_b.render(mode=self.ctx.POINTS)
 
         self.ctx.disable(moderngl.BLEND)
@@ -517,7 +524,11 @@ class Renderer(OrbitDragCameraWindow):
                         next = i + (-1 if imgui.get_mouse_drag_delta(0)[1] < 0 else 1)
                         if next >= 0 and next < len(self.files):
                             self.files[i], self.files[next] = self.files[next], self.files[i]
+                            if self.loaded:
+                                self.ens.swap(i, next)
+                                self.swap()
                             imgui.reset_mouse_drag_delta()
+
 
                 imgui.tree_pop()
 
@@ -579,6 +590,8 @@ class Renderer(OrbitDragCameraWindow):
                 _, self.exen_dilation_iterations = imgui.slider_int("E Dilation Iterations", self.exen_dilation_iterations, 0, 7)
                 _, self.exen_opaque = imgui.checkbox("E Opaque", self.exen_opaque)
 
+            _, self.filter_treshold = imgui.slider_float("Filter Treshold", self.filter_treshold, 0.0, 1.0)
+
         imgui.end()
 
         ##### slider
@@ -625,6 +638,7 @@ class Renderer(OrbitDragCameraWindow):
                                 pathlib.Path(__file__).parents[3] / "data/loewe/lion1.ply"
                              ]         
                     }
+        self.files = [str(file.resolve()) for file in filelist["files"]]
         self.normalize_data = True
         self.uniform_reference = False
         self.generic_run(filelist)
@@ -679,6 +693,17 @@ class Renderer(OrbitDragCameraWindow):
 
         self.num_points = self.ens.get_num_points()
         self.loaded = True
+
+    def swap(self):
+        source_pos, target_pos = self.ens.compute_data
+
+        self.compute_buffer_b = self.ctx.buffer(source_pos)
+        self.source_buffer = self.ctx.buffer(source_pos)
+        self.target_buffer = self.ctx.buffer(target_pos)
+
+        self.points_b = self.ctx.vertex_array(
+            self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
+        )
 
     def get_transition_state(self):
         

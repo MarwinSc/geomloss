@@ -7,20 +7,19 @@ layout(local_size_x=GROUP_SIZE) in;
 //uniform float time;
 uniform float transition_state;
 uniform float color_state;
-uniform bool color_distance; // w ist the distance in the range [0, 1]
 
 struct Point{
     vec4 pos; 
     vec4 col;
 };
 
-layout(std430, binding=0) buffer source{
+layout(std430, binding=0) buffer source{ // col.w is the distance in the range [0, 1] to the reference
     Point points[];
 } In;
-layout(std430, binding=1) buffer points_out{
+layout(std430, binding=1) buffer points_out{ // pos.w is the source distance, col.w is the target distance
     Point points[];
 } Out;
-layout(std430, binding=2) buffer target{ // for the assignment pos.w is the distance in the range [0, 1]
+layout(std430, binding=2) buffer target{ // col.w is the distance in the range [0, 1] to the reference
      Point points[];
 } Ass;
 
@@ -37,11 +36,10 @@ void main()
  
     Point out_point;
     out_point.pos.xyz = src_pos.xyz * (1 - transition_state) + tar_pos.xyz * (transition_state);
-    out_point.pos.w = src_pt.pos.w;
-
+    out_point.pos.w = src_pt.col.w; 
+    
     out_point.col.xyzw = src_pt.col.xyzw * (1 - color_state) + Ass.points[x].col.xyzw * (color_state);
-    float dist = Ass.points[x].pos.w;
-    out_point.col.w = dist;
+    out_point.col.w = Ass.points[x].col.w;
 
     Out.points[x] = out_point;
 }

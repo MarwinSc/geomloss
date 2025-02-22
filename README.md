@@ -1,3 +1,6 @@
-# Geometric loss functions between point clouds, images and volumes
+# Fork from geomloss
 
-Please check our [website](https://www.kernel-operations.io/geomloss)!
+Start with
+```terminal
+python -m renderer
+```

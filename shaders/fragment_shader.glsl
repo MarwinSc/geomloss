@@ -3,7 +3,9 @@
 
 uniform float transparency;
 
-in vec4 color; // w is the distance in the range[0, 1]
+in vec4 color;
+in vec4 xen_color;
+
 out vec4 outColor;
 out vec4 outExplicitEncoding;
 
@@ -18,7 +20,6 @@ void main() {
     // color with transparency
     outColor = vec4(color.xyz, transparency);
 
-    float interp = color.w;
-    outExplicitEncoding = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
-    outExplicitEncoding.w = transparency;
+    outExplicitEncoding = vec4(xen_color.xyz, transparency);
+    
 }

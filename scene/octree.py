@@ -69,6 +69,7 @@ class Octree:
         timer.toc()
 
         # convert the numpy arrays to torch tensors, to utilize autograd
+        self.points_np = self.points.copy()
         self.points = torch.tensor(self.points, dtype=torch.float32, device='cuda')
         self.points.requires_grad = self.requires_grad
 

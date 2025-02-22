@@ -15,6 +15,7 @@ class Ensemble:
         self.matching_colors = []
 
         self.idx = 0
+        self.idx_lut = None
 
         # legacy
         self.num_points = []
@@ -62,6 +63,11 @@ class Ensemble:
             model.build()
             self.models.insert(0, model)
             self.num_points.insert(0, n)
+        
+        self.idx_lut = list(range(len(self.models)))
+
+    def swap(self, i, j):
+        self.idx_lut[i], self.idx_lut[j] = self.idx_lut[j], self.idx_lut[i]
 
     def ot_reference(self, conf):
         """
@@ -78,45 +84,44 @@ class Ensemble:
         """
         Get the compute data as needed for the compute shader.
         """
-        # current points
-        # if idx is zero, first assignment and the points are from the reference model
-        if self.idx == 0:
+
+        def get_data_reference():
             oct = self.models[0].octree
-            positions = oct.points.detach().cpu().numpy()
+            positions = oct.points_np
             colors = oct.colors 
             positions = np.c_[positions, np.ones(positions.shape[0])]
             compute_data = np.empty((positions.shape[0] + colors.shape[0], 4), dtype="f4")
             compute_data[0::2,:] = positions
             compute_data[1::2,:] = colors
-        # else we take the points from the first assignment 
-        else:
-            positions = self.correspondences[self.idx - 1]
-            compute_data = np.empty((len(positions) * 2, 4), dtype="f4")
-            compute_data[0::2,:] = np.c_[positions, np.ones(positions.shape[0])]
-            compute_data[1::2,:] = self.matching_colors[self.idx - 1]
-            compute_data = compute_data.astype("f4")
+            return compute_data
         
-        # next points
-        assignment_positions = self.correspondences[self.idx]
+        def get_data_assignment(idx, positions):
+            assignment_positions = self.correspondences[idx]
 
-        #if self.conf["accumulate_distance"]:
-        #    assignment_distances = np.linalg.norm(self.correspondences[0] - positions[:, :3], axis=1)
-        #    for i in range(1, self.idx + 1):
-        #        assignment_distances += np.linalg.norm(self.correspondences[i] - self.correspondences[i-1], axis=1)
-        #    max_distance = np.max(assignment_distances)
-        #    assignment_distances = assignment_distances / max_distance 
-        #else:
-        assignment_distances = np.linalg.norm(assignment_positions - positions[:, :3], axis=1)
-        max_distance = np.max(assignment_distances)
-        assignment_distances = assignment_distances / max_distance 
+            assignment_distances = np.linalg.norm(assignment_positions - positions[:, :3], axis=1)
+            max_distance = np.max(assignment_distances)
+            assignment_distances = assignment_distances / max_distance 
+            colors = self.matching_colors[idx][:, :3]
 
-        assignment = np.empty((len(assignment_positions) * 2, 4), dtype="f4")
-        assignment[0::2,:] = np.c_[assignment_positions, assignment_distances]
-        assignment[1::2,:] = self.matching_colors[self.idx]
-        assignment = assignment.astype("f4")
+            compute_data = np.empty((len(assignment_positions) * 2, 4), dtype="f4")
+            # could potentially encode a scalar in position.w
+            compute_data[0::2,:] = np.c_[assignment_positions, np.ones(positions.shape[0])]
+            compute_data[1::2,:] = np.c_[colors, assignment_distances]
+            compute_data = compute_data.astype("f4")
+            return compute_data
+        
+        #idx = self.idx_lut[self.idx]
+        #next_idx = self.idx_lut[self.idx + 1]
+        #print(f"from {idx} to {next_idx}")
 
-        return compute_data, assignment
+        reference_data = get_data_reference()
 
+        # the reference model or the idx-1th correspondence is used as source data
+        source_data = reference_data if self.idx == 0 else get_data_assignment(self.idx - 1, reference_data[0::2,:])
+        target_data = get_data_assignment(self.idx, reference_data[0::2,:])
+
+        return source_data, target_data
+    
     def ot_sequential(self):
         """
         Legacy Optimal Transport.

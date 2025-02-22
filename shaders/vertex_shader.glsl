@@ -1,29 +1,37 @@
 
 #version 460
 
-in vec4 in_position; 
-in vec4 in_color; // w is still the distance
+in vec4 in_position; // w is the source distance
+in vec4 in_color; // w is the target distance
 
 uniform mat4 projection;
 uniform mat4 modelview;
 uniform float point_size;
 //uniform float time;
 uniform bool varying_size;
+uniform float filter_treshold;
+uniform float color_state;
 
 out vec4 color;
+out vec4 xen_color;
 
 void main() {
-    gl_Position = projection * modelview * in_position;
-    vec4 position_camera_coord = modelview * in_position;
-    // Set the point size
+    // set vertex_position.w to 1.0
+    gl_Position = projection * modelview * vec4(in_position.xyz, 1.0);
 
+    // Set the point size
     if (varying_size) {
         gl_PointSize = min((1/gl_Position.z) * point_size, 30.0);
     } else {
         gl_PointSize = point_size;
     }
 
-    // Calculate a random color based on the vertex index
-    //color = vec3(mod(gl_VertexID * 432.43, 1.0), mod(gl_VertexID * 6654.32, 1.0), mod(gl_VertexID  * 6544.11, 1.0));
     color = in_color;
+
+    // Set the explicit encoding colors
+    // interpolate between previous and current exen color
+    float interp = mix(in_position.w, in_color.w, color_state);
+    xen_color = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
+    // if below filter threshold don't render
+    if (interp < filter_treshold) gl_Position = vec4(-2, -2, 0, 0);
 }

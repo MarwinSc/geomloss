@@ -214,8 +214,10 @@ class OrbitDragCameraWindow(mglw.WindowConfig):
                 self.camera.target += self.camera.zoom_sensitivity * math.log(min(self.camera.radius, 0.01) + 1) * ((right * -dx) + (up * dy))
 
     def mouse_scroll_event(self, x_offset, y_offset):
-        self.camera.zoom_state(y_offset)
-        self.imgui.mouse_scroll_event(x_offset, y_offset)
+        if imgui.get_io().want_capture_mouse:
+            self.imgui.mouse_scroll_event(x_offset, y_offset)
+        else:
+            self.camera.zoom_state(y_offset)
 
     def mouse_press_event(self, x, y, button):
         self.imgui.mouse_press_event(x, y, button)
