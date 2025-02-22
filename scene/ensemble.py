@@ -88,11 +88,11 @@ class Ensemble:
         def get_data_reference():
             oct = self.models[0].octree
             positions = oct.points_np
-            colors = oct.colors 
+            colors = oct.colors[:, :3]
             positions = np.c_[positions, np.ones(positions.shape[0])]
             compute_data = np.empty((positions.shape[0] + colors.shape[0], 4), dtype="f4")
             compute_data[0::2,:] = positions
-            compute_data[1::2,:] = colors
+            compute_data[1::2,:] = np.c_[colors, np.zeros(colors.shape[0])]
             return compute_data
         
         def get_data_assignment(idx, positions):
@@ -100,7 +100,7 @@ class Ensemble:
 
             assignment_distances = np.linalg.norm(assignment_positions - positions[:, :3], axis=1)
             max_distance = np.max(assignment_distances)
-            assignment_distances = assignment_distances / max_distance 
+            assignment_distances = assignment_distances / max_distance if max_distance > 0 else np.zeros(positions.shape[0])
             colors = self.matching_colors[idx][:, :3]
 
             compute_data = np.empty((len(assignment_positions) * 2, 4), dtype="f4")
