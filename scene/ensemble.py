@@ -65,13 +65,7 @@ class Ensemble:
             self.models.insert(0, model)
             self.num_points.insert(0, n)
         
-        self.idx_lut = list(range(len(self.models)))
-
-    def swap(self, i, j):
-        self.idx_lut[i], self.idx_lut[j] = self.idx_lut[j], self.idx_lut[i]
-        if j == 0: # if sort based on emd is true resort if the reference model is swapped
-            self.idx_lut = np.argsort(self.emd_matrix[np.argwhere(self.idx_lut == 0), :]).ravel()
-        return self.idx_lut
+        self.idx_lut = np.arange(len(self.models))
 
     def ot_reference(self, conf):
         """
