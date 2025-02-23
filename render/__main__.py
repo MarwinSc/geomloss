@@ -156,6 +156,7 @@ class Renderer(OrbitDragCameraWindow):
         self.play = False
         self.play_speed = 0.1
         self.playback_direction = 1
+        self.constant_color = False
         ## Comparison
         self.color_distance = False
         self.filter_treshold = 0.0
@@ -290,13 +291,14 @@ class Renderer(OrbitDragCameraWindow):
 
             self.prog['projection'].write(self.camera.projection.matrix)
             self.prog['modelview'].write(self.camera.matrix)
-
+            
             self.prog['point_size'] = self.point_size
             #self.prog['time'].value = time
             self.prog['color_state'] = self.get_color_state()
             self.prog['varying_size'] = self.varying_size
             self.prog['transparency'] = self.transparency
             self.prog['filter_treshold'] = self.filter_treshold
+            self.prog['constant_color'] = self.constant_color
 
             self.points_b.render(mode=self.ctx.POINTS)
 
@@ -511,13 +513,6 @@ class Renderer(OrbitDragCameraWindow):
         if hasattr(self, "files"):
             if imgui.tree_node("Files", imgui.TREE_NODE_DEFAULT_OPEN):
 
-                #for i, file in enumerate(self.files):
-                #    #imgui.text(file)
-                #    pressed, state = imgui.selectable(file.split("/")[-1], self.selected == i)
-                #    if pressed:
-                #        self.selected = i
-                #        print(f"Selected: {file}")
-
                 for i, file in enumerate(self.files):
                     pressed, state = imgui.selectable(file.split("/")[-1])
                     if imgui.is_item_active() and not imgui.is_item_hovered():
@@ -525,10 +520,10 @@ class Renderer(OrbitDragCameraWindow):
                         if next >= 0 and next < len(self.files):
                             self.files[i], self.files[next] = self.files[next], self.files[i]
                             if self.loaded:
-                                self.ens.swap(i, next)
+                                idx_lut = self.ens.swap(i, next)
+                                # TODO swap on release()
                                 self.swap()
                             imgui.reset_mouse_drag_delta()
-
 
                 imgui.tree_pop()
 
@@ -547,7 +542,6 @@ class Renderer(OrbitDragCameraWindow):
             imgui.text(str(self.fps))
             _, self.play_speed = imgui.slider_float("Speed", self.play_speed, 0.00001, 0.5)
             _, self.bg_color = imgui.color_edit3("Background Color", *self.bg_color)
-            _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
             _, self.point_size = imgui.slider_float("P", self.point_size, 1.0, 30.0)
             _, self.varying_size = imgui.checkbox("Varying Size", self.varying_size)
             _, self.wireframe = imgui.checkbox("Wireframe", self.wireframe)
@@ -591,6 +585,8 @@ class Renderer(OrbitDragCameraWindow):
                 _, self.exen_opaque = imgui.checkbox("E Opaque", self.exen_opaque)
 
             _, self.filter_treshold = imgui.slider_float("Filter Treshold", self.filter_treshold, 0.0, 1.0)
+            _, self.constant_color = imgui.checkbox("Constant Color", self.constant_color)
+            _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
 
         imgui.end()
 
@@ -639,8 +635,6 @@ class Renderer(OrbitDragCameraWindow):
                              ]         
                     }
         self.files = [str(file.resolve()) for file in filelist["files"]]
-        self.normalize_data = True
-        self.uniform_reference = False
         self.generic_run(filelist)
 
     def run_ot(self):

@@ -1,8 +1,6 @@
 
 #version 460
 
-uniform float transparency;
-
 in vec4 color;
 in vec4 xen_color;
 
@@ -18,8 +16,7 @@ void main() {
     if (dist > 1.0) discard;
 
     // color with transparency
-    outColor = vec4(color.xyz, transparency);
-
-    outExplicitEncoding = vec4(xen_color.xyz, transparency);
+    outColor = color;
+    outExplicitEncoding = xen_color;
     
 }

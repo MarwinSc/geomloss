@@ -13,6 +13,7 @@ class Ensemble:
         self.models = []
         self.correspondences = []
         self.matching_colors = []
+        self.emd_matrix = None
 
         self.idx = 0
         self.idx_lut = None
@@ -68,6 +69,9 @@ class Ensemble:
 
     def swap(self, i, j):
         self.idx_lut[i], self.idx_lut[j] = self.idx_lut[j], self.idx_lut[i]
+        if j == 0: # if sort based on emd is true resort if the reference model is swapped
+            self.idx_lut = np.argsort(self.emd_matrix[np.argwhere(self.idx_lut == 0), :]).ravel()
+        return self.idx_lut
 
     def ot_reference(self, conf):
         """
@@ -79,6 +83,29 @@ class Ensemble:
         self.correspondences, self.matching_colors = ot_with_reference(self.models[idx].octree, octrees, conf, sort=self.conf["sort_emd"])
         # reorder models
         self.models = [self.models[idx]] + [model for i, model in enumerate(self.models) if i != idx]
+
+        self.post_ot_reference()
+        self.idx_lut = np.argsort(self.emd_matrix[0, :])
+
+    def post_ot_reference(self):
+        """
+        Post process the correspondences.
+        Compute EMD matrix for the ensemble.
+        """
+
+        emd_matrix = np.zeros((len(self.models), len(self.models)))
+
+        # first row, distance to reference model
+        distances = np.r_[[np.mean(np.linalg.norm(self.models[0].octree.points_np - corres, axis=1)) for corres in self.correspondences]][:, None]
+        emd_matrix[0, :] = np.c_[np.zeros(1), distances.T]
+        emd_matrix[1:, 0] = distances.ravel()
+        
+        for i, corres in enumerate(self.correspondences):
+            # TODO make efficient don'T compute all cells 
+            distances = [np.mean(np.linalg.norm(corres - self.correspondences[ii], axis=1)) for ii in range(len(self.correspondences))] 
+            emd_matrix[i + 1, 1:] = np.r_[distances]
+        
+        self.emd_matrix = emd_matrix
 
     def get_compute_data(self):
         """

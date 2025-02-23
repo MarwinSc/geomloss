@@ -9,13 +9,16 @@ uniform mat4 modelview;
 uniform float point_size;
 //uniform float time;
 uniform bool varying_size;
+uniform bool constant_color;
 uniform float filter_treshold;
 uniform float color_state;
+uniform float transparency;
 
 out vec4 color;
 out vec4 xen_color;
 
 void main() {
+
     // set vertex_position.w to 1.0
     gl_Position = projection * modelview * vec4(in_position.xyz, 1.0);
 
@@ -26,12 +29,20 @@ void main() {
         gl_PointSize = point_size;
     }
 
-    color = in_color;
+    color = vec4(in_color.xyz, 1.0);
 
     // Set the explicit encoding colors
     // interpolate between previous and current exen color
     float interp = mix(in_position.w, in_color.w, color_state);
-    xen_color = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
+    if (constant_color) {
+        interp = in_color.w;
+    }
+    vec4 xen_color = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
     // if below filter threshold don't render
-    if (interp < filter_treshold) gl_Position = vec4(-2, -2, 0, 0);
-}
+    if (interp < filter_treshold) {
+        xen_color.w = transparency; 
+        if (transparency < 0.01) {
+            gl_Position = vec4(-2, -2, 0, 0);
+        }
+    } 
+}   
