@@ -6,7 +6,6 @@ in vec2 TexCoords;
 // uniform sampler2D colorTexture;
 uniform sampler2D explicitEncodingTexture;
 
-// uniform vec3 bg_color;
 uniform vec3 exen_contour_color;
 
 // explicit encoding contour parameters
@@ -70,10 +69,11 @@ void main()
         // Scale the value into the range [0, 4] (5 discrete steps: 0.0, 0.25, 0.5, 0.75, 1.0)
         float scaledValue = weight * exen_number_contour_lines;
         // Round the scaled value to the nearest integer (this maps it to [0, 1, 2, 3, 4])
-        float rounded = round(scaledValue);
+        float rounded = floor(scaledValue + 0.5);
         // Map back to the closest value in the set [0.0, 0.25, 0.5, 0.75, 1.0]
         sampleTex[i] = rounded * (1.0/exen_number_contour_lines);
     }
+
     float col = float(0.0);
     for(int i = 0; i < TOTAL_KERNEL_SIZE; i++)
         col += sampleTex[i] * kernel_3[i];

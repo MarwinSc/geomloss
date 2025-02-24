@@ -9,9 +9,10 @@ uniform mat4 modelview;
 uniform float point_size;
 //uniform float time;
 uniform bool varying_size;
+uniform float color_state;
+
 uniform bool constant_color;
 uniform float filter_treshold;
-uniform float color_state;
 uniform float transparency;
 
 out vec4 color;
@@ -24,7 +25,7 @@ void main() {
 
     // Set the point size
     if (varying_size) {
-        gl_PointSize = min((1/gl_Position.z) * point_size, 30.0);
+        gl_PointSize = min((1/gl_Position.z) * point_size, 20.0);
     } else {
         gl_PointSize = point_size;
     }
@@ -33,11 +34,12 @@ void main() {
 
     // Set the explicit encoding colors
     // interpolate between previous and current exen color
+    
     float interp = mix(in_position.w, in_color.w, color_state);
     if (constant_color) {
         interp = in_color.w;
     }
-    vec4 xen_color = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
+    xen_color = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
     // if below filter threshold don't render
     if (interp < filter_treshold) {
         xen_color.w = transparency; 

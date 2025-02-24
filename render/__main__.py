@@ -295,8 +295,8 @@ class Renderer(OrbitDragCameraWindow):
             
             self.prog['point_size'] = self.point_size
             #self.prog['time'].value = time
-            self.prog['color_state'] = self.get_color_state()
             self.prog['varying_size'] = self.varying_size
+            self.prog['color_state'] = self.get_color_state()
             self.prog['transparency'] = self.transparency
             self.prog['filter_treshold'] = self.filter_treshold
             self.prog['constant_color'] = self.constant_color
