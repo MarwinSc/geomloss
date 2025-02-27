@@ -174,12 +174,12 @@ class Renderer(OrbitDragCameraWindow):
         self.depth_opaque = False
         # exen contour
         self.render_exen_contour = False
-        self.exen_contour_amp = 1.5
+        self.exen_contour_amp = 5.0
         self.exen_dilation_iterations = 0
         self.exen_number_contour_lines = 5.0
-        self.exen_opaque = True
         ## OT
-        self.normalize_data = False
+        self.octree_node_size = 1000
+        self.normalize_data = True
         #self.accumulate_distance = True
         self.ot_blur = 0.001
         self.ot_scaling = 0.7
@@ -451,6 +451,8 @@ class Renderer(OrbitDragCameraWindow):
         self.gaussia_vao.render(moderngl.TRIANGLES)
 
         #####
+        #self.ctx.copy_framebuffer(self.exen_edges_fbo, self.current_fbo)
+        #return
 
         # switch framebuffer
         self.current_fbo, self.back_fbo = self.back_fbo, self.current_fbo
@@ -465,7 +467,6 @@ class Renderer(OrbitDragCameraWindow):
         self.exen_edge_prog['exen_number_contour_lines'] = self.exen_number_contour_lines
         self.exen_edge_prog['offset_h'] = offset_h
         self.exen_edge_prog['offset_v'] = offset_v
-        self.exen_edge_prog['opaque'] = self.exen_opaque
         self.exen_edges_vao.render(moderngl.TRIANGLES)
 
         for i in range(self.exen_dilation_iterations):
@@ -510,6 +511,7 @@ class Renderer(OrbitDragCameraWindow):
         add_files = imgui.button("Files")
         if add_files:
             self.files = list(askopenfilenames(filetypes = [('', '*e57'), ('', '*ply'), ('', '*.obj'), ('', '*.laz')]))
+            self.idx_lut = np.arange(len(self.files))
 
         if hasattr(self, "files"):
             if imgui.tree_node("Files", imgui.TREE_NODE_DEFAULT_OPEN):
@@ -530,6 +532,10 @@ class Renderer(OrbitDragCameraWindow):
                     if self.loaded and imgui.is_item_deactivated_after_edit():
                         self.idx_lut = np.argsort(self.ens.emd_matrix[self.idx_lut[0], :]).ravel()
                         self.ens.idx_lut = self.idx_lut
+                        if self.uniform_reference:
+                            # todo broken 
+                            np.delete(self.idx_lut, np.argwhere([self.idx_lut == 0]).ravel())
+                            self.idx_lut -= 1
                         self.swap()
 
                 if self.loaded:
@@ -559,6 +565,7 @@ class Renderer(OrbitDragCameraWindow):
 
         optimal_transport, _ = imgui.collapsing_header("Optimal Transport", True)
         if optimal_transport:
+            _, self.octree_node_size = imgui.input_int("Node Size", self.octree_node_size)
             _, self.normalize_data = imgui.checkbox("Normalize Data", self.normalize_data)
             _, self.uniform_reference = imgui.checkbox("Uniform Reference", self.uniform_reference)
             _, self.reference_n = imgui.input_int("N", self.reference_n)
@@ -589,35 +596,122 @@ class Renderer(OrbitDragCameraWindow):
             exen_contour_ui, _ = imgui.collapsing_header("Exen Contour", True)
             if exen_contour_ui:
                 _, self.exen_contour_color = imgui.color_edit3("Explicit Encoding Color", *self.exen_contour_color)
-                _, self.exen_contour_amp = imgui.slider_float("CEX", self.exen_contour_amp, 0.0, 5.0)
-                _, self.exen_number_contour_lines = imgui.input_int("Ex Contour Lines", self.exen_number_contour_lines, 1.0, 100.0)
+                _, self.exen_contour_amp = imgui.slider_float("CEX", self.exen_contour_amp, 0.0, 100.0)
+                _, self.exen_number_contour_lines = imgui.input_int("Ex Contour Lines", self.exen_number_contour_lines, 1.0, 30.0)
                 _, self.exen_dilation_iterations = imgui.slider_int("E Dilation Iterations", self.exen_dilation_iterations, 0, 7)
-                _, self.exen_opaque = imgui.checkbox("E Opaque", self.exen_opaque)
 
             _, self.filter_treshold = imgui.slider_float("Filter Treshold", self.filter_treshold, 0.0, 1.0)
             _, self.constant_color = imgui.checkbox("Constant Color", self.constant_color)
             _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
 
+        _, self.lock_states = imgui.checkbox("Lock", self.lock_states)
+        imgui.same_line()
+        _, self.play = imgui.checkbox("Play", self.play)
+        
         imgui.end()
 
         ##### slider
 
         wnd_size = self.wnd.size
-        imgui.set_next_window_size(wnd_size[0], 115)
-        imgui.set_next_window_position(0, wnd_size[1]-115)
+        imgui.set_next_window_size(wnd_size[0], 140)
+        imgui.set_next_window_position(0, wnd_size[1]-140)
         imgui.begin("State", False, flags=imgui.WINDOW_NO_COLLAPSE)
-        _, self.lock_states = imgui.checkbox("Lock", self.lock_states)
-        imgui.same_line()
-        _, self.play = imgui.checkbox("Play", self.play)
 
         slider_width = wnd_size[0] - (wnd_size[0] * 0.02)
 
-        if self.loaded:
-            imgui.push_font(self.font)
-            for i in range(1, self.number_of_files - 1):
-                imgui.same_line(i * (slider_width / (self.number_of_files - 1)))
-                imgui.text_colored("³", 1.0, 0.67, 0.4)
-            imgui.pop_font()
+        #if self.loaded:
+        #    imgui.push_font(self.font)
+        #    for i in range(1, self.number_of_files - 1):
+        #        imgui.same_line(i * (slider_width / (self.number_of_files - 1)))
+        #        imgui.text_colored("³", 1.0, 0.67, 0.4)
+        #    imgui.pop_font()
+
+        if hasattr(self, "files") and False:
+            for i in range(len(self.files)):
+            
+                file = self.files[self.idx_lut[i]]
+                text = file.split("/")[-1]
+                if self.loaded:
+                    text += f"\n{self.ens.emd_matrix[self.idx_lut[0], self.idx_lut[i]]}"
+                #imgui.same_line(i * (slider_width / (self.number_of_files - 1)))
+                imgui.same_line()
+                imgui.set_cursor_pos_x(i * (slider_width / (self.number_of_files)))
+                #imgui.push_item_width(30)
+                pressed, state = imgui.selectable(text, 100, 60)
+                #imgui.pop_item_width()
+                #imgui.button(text, 60, 100)
+
+                #print(f"mouse drag delta: {imgui.get_mouse_drag_delta(0)}")
+
+                if imgui.is_item_active() and not imgui.is_item_hovered():
+                    next = i + (-1 if imgui.get_mouse_drag_delta(0)[0] < 0 else 1)
+
+                    #print(f"next: {next}")
+
+                    if next >= 0 and next < len(self.files):
+                        #self.files[i], self.files[next] = self.files[next], self.files[i]
+                        self.idx_lut[i], self.idx_lut[next] = self.idx_lut[next], self.idx_lut[i]
+                        imgui.reset_mouse_drag_delta()
+
+                # swap on release
+                if self.loaded and imgui.is_item_deactivated_after_edit():
+                    self.idx_lut = np.argsort(self.ens.emd_matrix[self.idx_lut[0], :]).ravel()
+                    self.ens.idx_lut = self.idx_lut
+                    if self.uniform_reference:
+                        # todo broken 
+                        np.delete(self.idx_lut, np.argwhere([self.idx_lut == 0]).ravel())
+                        self.idx_lut -= 1
+                    self.swap()
+
+        if hasattr(self, "files"):
+            for i in range(len(self.files)):
+                file = self.files[self.idx_lut[i]]
+                text = file.split("/")[-1]
+                if self.loaded:
+                    text += f"\n{self.ens.emd_matrix[self.idx_lut[0], self.idx_lut[i]]}"
+
+                imgui.same_line()
+                width = i + 1 * (slider_width / (self.number_of_files))
+                start_point = i * (slider_width / (self.number_of_files)) + 8 
+                imgui.set_cursor_pos_x(start_point)
+                # get the button color based on the state
+                if i == self.current_assignment: # current model 
+                    color_value = 1.0 - round(self.transition_state / (1 / (self.number_of_files - 1)) - self.current_assignment, 3)
+                elif i == self.current_assignment + 1: # next model
+                    color_value = round(self.transition_state / (1 / (self.number_of_files - 1)) - self.current_assignment, 3)
+                else:
+                    color_value = 0.0
+                if self.easyease:
+                    color_value = easeInOutCubic(color_value)
+                color1 = np.r_[41,74,122] / 255 
+                color2 = np.r_[30,47,73] / 255 
+                mixed_color = color1 * color_value + color2 * (1 - color_value)
+
+                imgui.push_style_color(imgui.COLOR_BUTTON, mixed_color[0], mixed_color[1], mixed_color[2])
+                imgui.button(text, width, 50)
+                imgui.pop_style_color(1)
+
+                with imgui.begin_drag_drop_source() as drag_drop_src:
+                    if drag_drop_src.dragging:
+                        imgui.set_drag_drop_payload("itemtype", i.to_bytes(4, byteorder='little'))
+                        imgui.text(file.split("/")[-1])
+                
+                with imgui.begin_drag_drop_target() as drag_drop_dst:
+                    if drag_drop_dst.hovered:
+                        payload = imgui.accept_drag_drop_payload('itemtype')
+                        if payload is not None:
+                            aidx = int.from_bytes(payload, byteorder='little')
+                            print(f'Received: {aidx}')
+
+                            self.idx_lut[i], self.idx_lut[aidx] = self.idx_lut[aidx], self.idx_lut[i]
+                            self.idx_lut = np.argsort(self.ens.emd_matrix[self.idx_lut[0], :]).ravel()
+                            self.ens.idx_lut = self.idx_lut
+                            if self.uniform_reference:
+                                # todo broken 
+                                np.delete(self.idx_lut, np.argwhere([self.idx_lut == 0]).ravel())
+                                self.idx_lut -= 1
+                            self.swap()
+
 
         imgui.set_next_item_width(slider_width)
         _, self.transition_state = imgui.slider_float("Transition", self.transition_state, 0.0, 1.0)
@@ -656,11 +750,10 @@ class Renderer(OrbitDragCameraWindow):
 
     def generic_run(self, filelist):
         self.number_of_files = len(filelist['files']) + (1 if self.uniform_reference else 0)
-
         self.idx_lut = np.arange(self.number_of_files)
 
         conf = {
-            "octree_node_size": 1000,
+            "octree_node_size": self.octree_node_size,
             "normalize_data": self.normalize_data,
             "autograd": True,
             "sort_emd": False,

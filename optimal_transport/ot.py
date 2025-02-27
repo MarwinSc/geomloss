@@ -422,9 +422,14 @@ def ot_octree_autodiff(source, target, conf):
     print("Registered shape in {:.3f}s.".format(end - start))
 
     if True:
+        # todo build kdtree beforehand in the pre processing step
         start = time.time()
         kd = KDTree(target.points.detach().cpu().numpy())
         d, i = kd.query(points.detach().cpu().numpy(), k=1, distance_upper_bound=0.3)
+
+        mask_missed = d == np.inf
+        i[mask_missed] = 0
+
         color = torch.tensor(target.colors[i], dtype=torch.float32, device='cuda')
         end = time.time()   
         print("KD color query in {:.3f}s.".format(end - start))

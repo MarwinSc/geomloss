@@ -15,7 +15,6 @@ uniform float exen_number_contour_lines;
 // general contour parameters
 uniform float offset_v;
 uniform float offset_h;
-uniform bool opaque;
 
 const int KERNEL_SIZE = 3;
 const int TOTAL_KERNEL_SIZE = KERNEL_SIZE * KERNEL_SIZE;
@@ -61,6 +60,8 @@ void main()
 
     // sample the kernel centered around the current pixel
     float sampleTex[TOTAL_KERNEL_SIZE];
+    float lowest_value = 1.0;
+    float highest_value = 0.0;
     for(int i = 0; i < TOTAL_KERNEL_SIZE; i++)
     {   
         vec4 tex_color = texture(explicitEncodingTexture, TexCoords.st + (offsets_3[i]));
@@ -71,8 +72,16 @@ void main()
         // Round the scaled value to the nearest integer (this maps it to [0, 1, 2, 3, 4])
         float rounded = floor(scaledValue + 0.5);
         // Map back to the closest value in the set [0.0, 0.25, 0.5, 0.75, 1.0]
-        sampleTex[i] = rounded * (1.0/exen_number_contour_lines);
+        sampleTex[i] = rounded / exen_number_contour_lines;
+
+        if (sampleTex[i] < lowest_value)
+            lowest_value = sampleTex[i];
+        if (sampleTex[i] > highest_value)
+            highest_value = sampleTex[i];
     }
+
+    if ((highest_value - lowest_value) > (1/exen_number_contour_lines))
+        discard;
 
     float col = float(0.0);
     for(int i = 0; i < TOTAL_KERNEL_SIZE; i++)
@@ -84,11 +93,7 @@ void main()
     if (exen_contour > 0.0){
 
         vec3 color = clamp(exen_contour * exen_contour_color, 0.0, 1.0);
-
-        if (opaque)
-            FragColor = vec4(color, 1.0);
-        else
-            FragColor = vec4(color, clamp(exen_contour, 0.0, 1.0));
+        FragColor = vec4(color, clamp(exen_contour, 0.0, 1.0));
     }else{
         FragColor = vec4(0.0, 0.0, 0.0, 0.0);
     }

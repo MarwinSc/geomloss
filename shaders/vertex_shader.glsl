@@ -39,7 +39,7 @@ void main() {
     if (constant_color) {
         interp = in_color.w;
     }
-    xen_color = vec4(0.0, 0.0, 1.0, 1.0) * (1 - interp) + vec4(1.0, 0.0, 0.0, 1.0) * interp;
+    xen_color = vec4(0.0, 0.0, 1 - interp, 1.0) + vec4(interp, 0.0, 0.0, 1.0);
     // if below filter threshold don't render
     if (interp < filter_treshold) {
         xen_color.w = transparency; 
