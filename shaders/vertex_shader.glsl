@@ -25,7 +25,7 @@ void main() {
 
     // Set the point size
     if (varying_size) {
-        gl_PointSize = min((1/gl_Position.z) * point_size, 20.0);
+        gl_PointSize = min((1/gl_Position.z) * point_size, 10.0);
     } else {
         gl_PointSize = point_size;
     }
