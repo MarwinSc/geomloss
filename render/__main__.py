@@ -167,14 +167,14 @@ class Renderer(OrbitDragCameraWindow):
         self.exen_contour_color = (0.0, 0.0, 0.0)
         # depth contour
         self.render_depth_contour = False
-        self.depth_contour_amp = 5.0
-        self.depth_dilation_iterations = 1
+        self.depth_contour_amp = 50.0
+        self.depth_dilation_iterations = 0
         self.depth_blur = False
         self.depth_sigma = 1.0
         self.depth_opaque = False
         # exen contour
         self.render_exen_contour = False
-        self.exen_contour_amp = 5.0
+        self.exen_contour_amp = 25.0
         self.exen_dilation_iterations = 0
         self.exen_number_contour_lines = 5.0
         ## OT
@@ -512,7 +512,7 @@ class Renderer(OrbitDragCameraWindow):
         #imgui.show_test_window()
 
         imgui.set_next_window_position(0, 22)
-        imgui.set_next_window_size(0, self.wnd.size[1]-120-22, imgui.ALWAYS)
+        imgui.set_next_window_size(270, self.wnd.size[1]-120-22, imgui.ALWAYS)
         window_flags = imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_TITLE_BAR
         imgui.begin("Cfg", True, window_flags)
 
@@ -583,26 +583,26 @@ class Renderer(OrbitDragCameraWindow):
         if comparison:
             _, self.color_distance = imgui.checkbox("Color Distance", self.color_distance)
             # contour 
-            _, self.contour_overlay = imgui.checkbox("Ex Contour Overlay", self.contour_overlay)
+            _, self.contour_overlay = imgui.checkbox("Contour Only", self.contour_overlay)
             _, self.render_depth_contour = imgui.checkbox("Render Depth Contour", self.render_depth_contour)
             _, self.render_exen_contour = imgui.checkbox("Render Ex Contour", self.render_exen_contour)
             _, self.offset_factor = imgui.slider_float("Offset Factor", self.offset_factor, 0.1, 2.0)
 
             depth_contour_ui, _ = imgui.collapsing_header("Depth Contour", True)
             if depth_contour_ui:
-                _, self.depth_contour_color = imgui.color_edit3("Depth Color", *self.depth_contour_color)
+                _, self.depth_contour_color = imgui.color_edit3("D Color", *self.depth_contour_color)
                 _, self.depth_contour_amp = imgui.slider_float("CD", self.depth_contour_amp, 0.0, 100.0)
-                _, self.depth_dilation_iterations = imgui.slider_int("D Dilation Iterations", self.depth_dilation_iterations, 0, 7)
+                _, self.depth_dilation_iterations = imgui.slider_int("D Dilation", self.depth_dilation_iterations, 0, 7)
                 _, self.depth_blur = imgui.checkbox("Blur", self.depth_blur)
                 _, self.depth_sigma = imgui.slider_float("Sigma", self.depth_sigma, 0.1, 10.0)
                 _, self.depth_opaque = imgui.checkbox("D Opaque", self.depth_opaque)
 
             exen_contour_ui, _ = imgui.collapsing_header("Exen Contour", True)
             if exen_contour_ui:
-                _, self.exen_contour_color = imgui.color_edit3("Explicit Encoding Color", *self.exen_contour_color)
+                _, self.exen_contour_color = imgui.color_edit3("E Color", *self.exen_contour_color)
                 _, self.exen_contour_amp = imgui.slider_float("CEX", self.exen_contour_amp, 0.0, 100.0)
-                _, self.exen_number_contour_lines = imgui.input_int("Ex Contour Lines", self.exen_number_contour_lines, 1.0, 30.0)
-                _, self.exen_dilation_iterations = imgui.slider_int("E Dilation Iterations", self.exen_dilation_iterations, 0, 7)
+                _, self.exen_number_contour_lines = imgui.input_int("#Lines", self.exen_number_contour_lines, 1.0, 30.0)
+                _, self.exen_dilation_iterations = imgui.slider_int("E Dilation", self.exen_dilation_iterations, 0, 7)
 
             _, self.filter_treshold = imgui.slider_float("Filter Treshold", self.filter_treshold, 0.0, 1.0)
             _, self.constant_color = imgui.checkbox("Constant Color", self.constant_color)
@@ -626,7 +626,7 @@ class Renderer(OrbitDragCameraWindow):
 
         imgui.set_next_window_size(self.wnd.size[0], 120)
         imgui.set_next_window_position(0, self.wnd.size[1]-120)
-        imgui.begin("State", False, flags=imgui.WINDOW_NO_COLLAPSE | imgui.WINDOW_NO_TITLE_BAR)
+        imgui.begin("State", False, flags=imgui.WINDOW_NO_COLLAPSE | imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
 
         slider_width = self.wnd.size[0] - (self.wnd.size[0] * 0.02)
 
@@ -640,13 +640,13 @@ class Renderer(OrbitDragCameraWindow):
         if hasattr(self, "files"):
             for i in range(len(self.files)):
                 file = self.files[self.idx_lut[i]]
-                text = file.split("/")[-1]
+                text = pathlib.Path(file).stem
                 if self.loaded:
-                    text += f"\n{self.ens.emd_matrix[self.idx_lut[0], self.idx_lut[i]]}"
+                    text += f"\n{round(self.ens.emd_matrix[self.idx_lut[0], self.idx_lut[i]], 5)}"
 
                 imgui.same_line()
-                width = i + 1 * (slider_width / (len(self.files))) - 5
-                start_point = i * (slider_width / (len(self.files))) + 5 
+                width = (slider_width / (len(self.files))) - 5
+                start_point = i * (slider_width / (len(self.files))) + 10
                 imgui.set_cursor_pos_x(start_point)
 
                 # get the button color based on the state
