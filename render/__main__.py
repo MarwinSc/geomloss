@@ -160,7 +160,8 @@ class Renderer(OrbitDragCameraWindow):
         self.idx_lut = None
         ## Comparison
         self.color_distance = False
-        self.filter_treshold = 0.0
+        self.filter_treshold_vertex = 0.0
+        self.filter_range_composite = [0.0, 0.0]
         ## contour
         self.contour_overlay = True
         self.depth_contour_color = (0.0, 0.0, 0.0)
@@ -298,7 +299,7 @@ class Renderer(OrbitDragCameraWindow):
             self.prog['varying_size'] = self.varying_size
             self.prog['color_state'] = self.get_color_state()
             self.prog['transparency'] = self.transparency
-            self.prog['filter_treshold'] = self.filter_treshold
+            self.prog['filter_treshold'] = self.filter_treshold_vertex
             self.prog['constant_color'] = self.constant_color
 
             self.points_b.render(mode=self.ctx.POINTS)
@@ -320,18 +321,20 @@ class Renderer(OrbitDragCameraWindow):
         self.ctx.screen.use()
         self.ctx.clear(self.bg_color[0], self.bg_color[1], self.bg_color[2], 1.0)
 
-        self.composite_prog['contour_overlay'] = self.contour_overlay
+        self.composite_prog['colors_and_contour'] = self.contour_overlay
         self.composite_prog['colorTexture'].value = 0
-        self.composite_prog['depthEdgesTexture'].value = 1
-        self.composite_prog['exenEdgesTexture'].value = 2
+        self.composite_prog['exenTexture'].value = 1
+        self.composite_prog['depthEdgesTexture'].value = 2
+        self.composite_prog['exenEdgesTexture'].value = 3
 
-        if self.color_distance:
-            self.my_framebuffer.color_attachments[1].use(location=0)
-        else:
-            self.my_framebuffer.color_attachments[0].use(location=0)
-        # todo change when using blur
-        self.depth_edges_fbo.color_attachments[0].use(location=1)
-        self.exen_edges_fbo.color_attachments[0].use(location=2)
+        self.composite_prog['exen_overlay'] = self.color_distance
+        self.composite_prog['lower_filter_treshold'] = self.filter_range_composite[0]
+        self.composite_prog['upper_filter_treshold'] = self.filter_range_composite[1]
+
+        self.my_framebuffer.color_attachments[0].use(location=0)
+        self.my_framebuffer.color_attachments[1].use(location=1)
+        self.depth_edges_fbo.color_attachments[0].use(location=2)
+        self.exen_edges_fbo.color_attachments[0].use(location=3)
 
         self.ctx.wireframe = self.wireframe
         
@@ -604,9 +607,12 @@ class Renderer(OrbitDragCameraWindow):
                 _, self.exen_number_contour_lines = imgui.input_int("#Lines", self.exen_number_contour_lines, 1.0, 30.0)
                 _, self.exen_dilation_iterations = imgui.slider_int("E Dilation", self.exen_dilation_iterations, 0, 7)
 
-            _, self.filter_treshold = imgui.slider_float("Filter Treshold", self.filter_treshold, 0.0, 1.0)
-            _, self.constant_color = imgui.checkbox("Constant Color", self.constant_color)
-            _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
+            filter_ui, _ = imgui.collapsing_header("Filter", True)
+            if filter_ui:
+                _, self.filter_treshold_vertex = imgui.slider_float("T Vert", self.filter_treshold_vertex, 0.0, 1.0)
+                _, self.constant_color = imgui.checkbox("Constant Color", self.constant_color)
+                _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
+                _, self.filter_range_composite[0], self.filter_range_composite[1] = imgui.drag_float_range2("C Filter", self.filter_range_composite[0], self.filter_range_composite[1], 0.005, 0.0, 1.0, "%.2f", "%.2f")
 
         # Play button
         imgui.set_cursor_pos((12, height - 60))
