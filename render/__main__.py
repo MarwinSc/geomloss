@@ -523,7 +523,7 @@ class Renderer(OrbitDragCameraWindow):
         #imgui.show_test_window()
 
         imgui.set_next_window_position(0, 22)
-        imgui.set_next_window_size(270, self.wnd.size[1]-120-22, imgui.ALWAYS)
+        imgui.set_next_window_size(270, self.wnd.size[1]-120-22-55, imgui.ALWAYS)
         window_flags = imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_TITLE_BAR
         imgui.begin("Cfg", True, window_flags)
 
@@ -637,15 +637,20 @@ class Renderer(OrbitDragCameraWindow):
                         if is_selected:
                             imgui.set_item_default_focus()
                     imgui.end_combo()
+        imgui.end()
 
+        imgui.set_next_window_position(0, self.wnd.size[1]-120-55)
+        imgui.set_next_window_size(270, 55, imgui.ALWAYS)
+        window_flags = imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_TITLE_BAR
+        imgui.begin("Play", True, window_flags)
+        width, height = imgui.get_window_size()
         # Play button
-        imgui.set_cursor_pos((12, height - 60))
         if self.play:
             color_p = np.r_[55,130,190] / 255 
         else:
             color_p = np.r_[30,47,73] / 255 
         imgui.push_style_color(imgui.COLOR_BUTTON, color_p[0], color_p[1], color_p[2])
-        play = imgui.button("Play", width - 24, 50)
+        play = imgui.button("Play", width - 15, height - 16)
         imgui.pop_style_color(1)
         if play:
             self.play = not self.play
