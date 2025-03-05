@@ -161,7 +161,7 @@ class Renderer(OrbitDragCameraWindow):
         ## Comparison
         self.color_distance = False
         self.filter_treshold_vertex = 0.0
-        self.filter_range_composite = [0.0, 0.0]
+        self.filter_range_composite = [0.01, 0.01]
         ## contour
         self.contour_overlay = True
         self.depth_contour_color = (0.0, 0.0, 0.0)

@@ -74,10 +74,10 @@ void main()
         // Map back to the closest value in the set [0.0, 0.25, 0.5, 0.75, 1.0]
         sampleTex[i] = rounded / exen_number_contour_lines;
 
-        if (sampleTex[i] < lowest_value)
-            lowest_value = sampleTex[i];
-        if (sampleTex[i] > highest_value)
-            highest_value = sampleTex[i];
+        if (weight < lowest_value)
+            lowest_value = weight;
+        if (weight > highest_value)
+            highest_value = weight;
     }
 
     if ((highest_value - lowest_value) > (1/exen_number_contour_lines))
