@@ -162,7 +162,11 @@ class Renderer(OrbitDragCameraWindow):
         self.color_distance = False
         self.filter_treshold_vertex = 0.0
         self.filter_range_composite = [0.01, 0.01]
-        ## contour
+        self.exen_colorA = np.r_[1.0, 0.0, 0.0]
+        self.exen_colorB = np.r_[0.0, 0.0, 1.0]
+        self.use_colormap = True
+        self.selected_colormap = 2
+        ## contours
         self.contour_overlay = True
         self.depth_contour_color = (0.0, 0.0, 0.0)
         self.exen_contour_color = (0.0, 0.0, 0.0)
@@ -301,6 +305,10 @@ class Renderer(OrbitDragCameraWindow):
             self.prog['transparency'] = self.transparency
             self.prog['filter_treshold'] = self.filter_treshold_vertex
             self.prog['constant_color'] = self.constant_color
+            self.prog['exen_colorA'] = self.exen_colorA
+            self.prog['exen_colorB'] = self.exen_colorB
+            self.prog['use_colormap'] = self.use_colormap
+            self.prog['colormap'] = self.selected_colormap
 
             self.points_b.render(mode=self.ctx.POINTS)
 
@@ -613,6 +621,22 @@ class Renderer(OrbitDragCameraWindow):
                 _, self.constant_color = imgui.checkbox("Constant Color", self.constant_color)
                 _, self.transparency = imgui.slider_float("Transparency", self.transparency, 0.0, 1.0)
                 _, self.filter_range_composite[0], self.filter_range_composite[1] = imgui.drag_float_range2("C Filter", self.filter_range_composite[0], self.filter_range_composite[1], 0.005, 0.0, 1.0, "%.2f", "%.2f")
+
+            color_ui, _ = imgui.collapsing_header("Color", True)
+            if color_ui:
+                _, self.exen_colorA = imgui.color_edit3("Color A", *self.exen_colorA)
+                _, self.exen_colorB = imgui.color_edit3("Color B", *self.exen_colorB)
+                _, self.use_colormap = imgui.checkbox("Use Colormap", self.use_colormap)
+                colormap = ["Viridis", "Plasma", "Magma", "Inferno"]
+                if imgui.begin_combo("CM", colormap[self.selected_colormap]):
+                    for i, item in enumerate(colormap):
+                        is_selected = (i == self.selected_colormap)
+                        if imgui.selectable(item, is_selected)[0]:
+                            self.selected_colormap = i
+                        # Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+                        if is_selected:
+                            imgui.set_item_default_focus()
+                    imgui.end_combo()
 
         # Play button
         imgui.set_cursor_pos((12, height - 60))
