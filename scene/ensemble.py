@@ -17,6 +17,7 @@ class Ensemble:
 
         self.idx = 0
         self.idx_lut = None
+        self._selected_attribute = 2
 
         # legacy
         self.num_points = []
@@ -77,6 +78,9 @@ class Ensemble:
         self.correspondences, self.matching_colors = ot_with_reference(self.models[idx].octree, octrees, conf, sort=self.conf["sort_emd"])
         # reorder models
         self.models = [self.models[idx]] + [model for i, model in enumerate(self.models) if i != idx]
+        # insert reference model to correspondences
+        self.correspondences = [self.models[0].octree.points_np] + self.correspondences
+        self.matching_colors = [self.models[0].octree.colors] + self.matching_colors
 
         self.post_ot_reference()
         self.idx_lut = np.argsort(self.emd_matrix[0, :])
@@ -85,21 +89,29 @@ class Ensemble:
         """
         Post process the correspondences.
         Compute EMD matrix for the ensemble.
+        Compute the variance of the points.
+        And the total distance between points.
         """
+
+        # emd matrix
 
         emd_matrix = np.zeros((len(self.models), len(self.models)))
 
-        # first row, distance to reference model
-        distances = np.r_[[np.mean(np.linalg.norm(self.models[0].octree.points_np - corres, axis=1)) for corres in self.correspondences]][:, None]
-        emd_matrix[0, :] = np.c_[np.zeros(1), distances.T]
-        emd_matrix[1:, 0] = distances.ravel()
-        
+        # iterate over correspondences
         for i, corres in enumerate(self.correspondences):
             # TODO make efficient don'T compute all cells 
             distances = [np.mean(np.linalg.norm(corres - self.correspondences[ii], axis=1)) for ii in range(len(self.correspondences))] 
-            emd_matrix[i + 1, 1:] = np.r_[distances]
-        
+            emd_matrix[i , :] = np.r_[distances]
+
         self.emd_matrix = emd_matrix
+
+        # variance 
+        self.variance = np.var(np.dstack(self.correspondences), axis=(1, 2))
+        self.variance = self.variance / np.max(self.variance) if np.max(self.variance) > 0 else np.zeros(self.variance.shape[0])
+
+        # total 
+        self.cummultive = np.sum(np.c_[[np.linalg.norm(self.correspondences[i] - self.correspondences[i + 1], axis=1) for i in range(len(self.correspondences) - 1)]], axis=0)
+        self.cummultive = self.cummultive / np.max(self.cummultive) if np.max(self.cummultive) > 0 else np.zeros(self.cummultive.shape[0])
 
     def get_compute_data(self):
         """
@@ -110,27 +122,24 @@ class Ensemble:
             oct = self.models[0].octree
             positions = oct.points_np
             colors = oct.colors[:, :3]
-            positions = np.c_[positions, np.ones(positions.shape[0])]
             compute_data = np.empty((positions.shape[0] + colors.shape[0], 4), dtype="f4")
-            compute_data[0::2,:] = positions
+            compute_data[0::2,:] = np.c_[positions, np.ones(positions.shape[0])]
             compute_data[1::2,:] = np.c_[colors, np.zeros(colors.shape[0])]
             return compute_data
         
-        def get_data_assignment(idx, positions):
-            assignment_positions = self.correspondences[idx]
-
-            assignment_distances = np.linalg.norm(assignment_positions - positions[:, :3], axis=1)
-            max_distance = np.max(assignment_distances)
-            assignment_distances = assignment_distances / max_distance if max_distance > 0 else np.zeros(positions.shape[0])
+        def get_data_assignment(idx, pos_other):
+            positions = self.correspondences[idx]
             colors = self.matching_colors[idx][:, :3]
-
-            compute_data = np.empty((len(assignment_positions) * 2, 4), dtype="f4")
+            compute_data = np.empty((len(positions) * 2, 4), dtype="f4")
             # could potentially encode a scalar in position.w
-            compute_data[0::2,:] = np.c_[assignment_positions, np.ones(positions.shape[0])]
+            compute_data[0::2,:] = np.c_[positions, np.ones(positions.shape[0])]
+            # color.w is used for exen
+            assignment_distances = np.linalg.norm(positions - pos_other, axis=1)
+            max_distance = np.max(assignment_distances)
+            assignment_distances = assignment_distances / max_distance if max_distance > 0 else np.zeros(assignment_distances.shape[0])
             compute_data[1::2,:] = np.c_[colors, assignment_distances]
-            compute_data = compute_data.astype("f4")
             return compute_data
-
+        
         # always get the reference data        
         reference_data = get_data_reference()
 
@@ -138,9 +147,34 @@ class Ensemble:
         idx = self.idx_lut[self.idx]
         next_idx = self.idx_lut[self.idx + 1]
             
-        # the reference model or the idx-1th correspondence is used as data
-        source_data = reference_data if idx == 0 else get_data_assignment(idx - 1, reference_data[0::2,:])
-        target_data = reference_data if next_idx == 0 else get_data_assignment(next_idx - 1, reference_data[0::2,:])
+
+        if self._selected_attribute == 0: # get total
+            source_data = reference_data if idx == 0 else get_data_assignment(idx, reference_data[0::2,:3])
+            target_data = reference_data if next_idx == 0 else get_data_assignment(next_idx, reference_data[0::2,:3])
+            source_data[1::2, 3] = self.cummultive
+            target_data[1::2, 3] = self.cummultive
+        elif self._selected_attribute == 1: # get variance
+            source_data = reference_data if idx == 0 else get_data_assignment(idx, reference_data[0::2,:3])
+            target_data = reference_data if next_idx == 0 else get_data_assignment(next_idx, reference_data[0::2,:3])
+            source_data[1::2, 3] = self.variance
+            target_data[1::2, 3] = self.variance
+        elif self._selected_attribute == 2: # get color reference
+            source_data = reference_data if idx == 0 else get_data_assignment(idx, reference_data[0::2,:3])
+            target_data = reference_data if next_idx == 0 else get_data_assignment(next_idx, reference_data[0::2,:3])
+        else: # get color pairwise
+            source_data = reference_data if idx == 0 else get_data_assignment(idx, self.correspondences[next_idx])
+            target_data = reference_data if next_idx == 0 else get_data_assignment(next_idx, self.correspondences[idx])
+            if idx == 0:
+                assignment_distances = np.linalg.norm(target_data[0::2, :3] - source_data[0::2, :3], axis=1)
+                max_distance = np.max(assignment_distances)
+                assignment_distances = assignment_distances / max_distance if max_distance > 0 else np.zeros(assignment_distances.shape[0])
+                source_data[1::2, 3] = assignment_distances
+            if next_idx == 0:
+                assignment_distances = np.linalg.norm(target_data[0::2, :3] - source_data[0::2, :3], axis=1)
+                max_distance = np.max(assignment_distances)
+                assignment_distances = assignment_distances / max_distance if max_distance > 0 else np.zeros(assignment_distances.shape[0])
+                target_data[1::2, 3] = assignment_distances
+
 
         return source_data, target_data
     
@@ -197,3 +231,10 @@ class Ensemble:
     def compute_data(self):
         return self.get_compute_data()
     
+    @property
+    def selected_attribute(self):
+        return self._selected_attribute
+    
+    @selected_attribute.setter
+    def selected_attribute(self, value):
+        self._selected_attribute = value

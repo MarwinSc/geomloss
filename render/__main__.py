@@ -637,6 +637,20 @@ class Renderer(OrbitDragCameraWindow):
                         if is_selected:
                             imgui.set_item_default_focus()
                     imgui.end_combo()
+
+                if hasattr(self, "ens") and self.ens is not None:  
+                    attributes = ["cummulative", "variance", "reference", "pairwise"]
+                    if imgui.begin_combo("AT", attributes[self.ens.selected_attribute]):
+                        for i, item in enumerate(attributes):
+                            is_selected = (i == self.ens.selected_attribute)
+                            if imgui.selectable(item, is_selected)[0]:
+                                    self.ens.selected_attribute = i
+                                    self.swap()
+                            # Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+                            if is_selected:
+                                imgui.set_item_default_focus()
+                        imgui.end_combo()
+
         imgui.end()
 
         imgui.set_next_window_position(0, self.wnd.size[1]-120-55)
