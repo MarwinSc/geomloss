@@ -118,63 +118,47 @@ class Ensemble:
         Get the compute data as needed for the compute shader.
         """
 
-        def get_data_reference():
-            oct = self.models[0].octree
-            positions = oct.points_np
-            colors = oct.colors[:, :3]
-            compute_data = np.empty((positions.shape[0] + colors.shape[0], 4), dtype="f4")
-            compute_data[0::2,:] = np.c_[positions, np.ones(positions.shape[0])]
-            compute_data[1::2,:] = np.c_[colors, np.zeros(colors.shape[0])]
-            return compute_data
-        
-        def get_data_assignment(idx, pos_other):
+        def get_data_assignment(idx, pos_other=None):
+            '''
+            Get the compute data for one model.
+            Optionally use the position of another model to compute the assignment distances.
+            '''
             positions = self.correspondences[idx]
             colors = self.matching_colors[idx][:, :3]
             compute_data = np.empty((len(positions) * 2, 4), dtype="f4")
             # could potentially encode a scalar in position.w
             compute_data[0::2,:] = np.c_[positions, np.ones(positions.shape[0])]
             # color.w is used for exen
-            assignment_distances = np.linalg.norm(positions - pos_other, axis=1)
-            max_distance = np.max(assignment_distances)
-            assignment_distances = assignment_distances / max_distance if max_distance > 0 else np.zeros(assignment_distances.shape[0])
-            compute_data[1::2,:] = np.c_[colors, assignment_distances]
+            if pos_other is None: # reference (no previous model)
+                compute_data[1::2,:] = np.c_[colors, np.zeros(colors.shape[0])]
+            else:
+                assignment_distances = np.linalg.norm(positions - pos_other, axis=1)
+                max_distance = np.max(assignment_distances)
+                assignment_distances = assignment_distances / max_distance if max_distance > 0 else np.zeros(assignment_distances.shape[0])
+                compute_data[1::2,:] = np.c_[colors, assignment_distances]
             return compute_data
-        
-        # always get the reference data        
-        reference_data = get_data_reference()
 
         # respect user choosen sorting of models
         idx = self.idx_lut[self.idx]
         next_idx = self.idx_lut[self.idx + 1]
             
-
         if self._selected_attribute == 0: # get total
-            source_data = reference_data if idx == 0 else get_data_assignment(idx, reference_data[0::2,:3])
-            target_data = reference_data if next_idx == 0 else get_data_assignment(next_idx, reference_data[0::2,:3])
+            source_data = get_data_assignment(idx, None)
+            target_data = get_data_assignment(next_idx, None)
             source_data[1::2, 3] = self.cummultive
             target_data[1::2, 3] = self.cummultive
         elif self._selected_attribute == 1: # get variance
-            source_data = reference_data if idx == 0 else get_data_assignment(idx, reference_data[0::2,:3])
-            target_data = reference_data if next_idx == 0 else get_data_assignment(next_idx, reference_data[0::2,:3])
+            source_data = get_data_assignment(idx, None)
+            target_data = get_data_assignment(next_idx, None)
             source_data[1::2, 3] = self.variance
             target_data[1::2, 3] = self.variance
         elif self._selected_attribute == 2: # get color reference
-            source_data = reference_data if idx == 0 else get_data_assignment(idx, reference_data[0::2,:3])
-            target_data = reference_data if next_idx == 0 else get_data_assignment(next_idx, reference_data[0::2,:3])
+            reference_data = get_data_assignment(self.idx_lut[0], None)
+            source_data = reference_data if idx == self.idx_lut[0] else get_data_assignment(idx, reference_data[0::2,:3])
+            target_data = reference_data if next_idx == self.idx_lut[0] else get_data_assignment(next_idx, reference_data[0::2,:3])
         else: # get color pairwise
-            source_data = reference_data if idx == 0 else get_data_assignment(idx, self.correspondences[next_idx])
-            target_data = reference_data if next_idx == 0 else get_data_assignment(next_idx, self.correspondences[idx])
-            if idx == 0:
-                assignment_distances = np.linalg.norm(target_data[0::2, :3] - source_data[0::2, :3], axis=1)
-                max_distance = np.max(assignment_distances)
-                assignment_distances = assignment_distances / max_distance if max_distance > 0 else np.zeros(assignment_distances.shape[0])
-                source_data[1::2, 3] = assignment_distances
-            if next_idx == 0:
-                assignment_distances = np.linalg.norm(target_data[0::2, :3] - source_data[0::2, :3], axis=1)
-                max_distance = np.max(assignment_distances)
-                assignment_distances = assignment_distances / max_distance if max_distance > 0 else np.zeros(assignment_distances.shape[0])
-                target_data[1::2, 3] = assignment_distances
-
+            source_data = get_data_assignment(idx, self.correspondences[next_idx])
+            target_data = get_data_assignment(next_idx, self.correspondences[idx])
 
         return source_data, target_data
     
