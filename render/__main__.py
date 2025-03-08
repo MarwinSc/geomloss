@@ -183,13 +183,13 @@ class Renderer(OrbitDragCameraWindow):
         self.exen_dilation_iterations = 0
         self.exen_number_contour_lines = 5.0
         ## OT
-        self.octree_node_size = 1000
+        self.octree_node_size = 500
         self.normalize_data = True
         #self.accumulate_distance = True
         self.ot_blur = 0.001
         self.ot_scaling = 0.7
-        self.ot_trunctate = 5
-        self.ot_reach = 10.0
+        self.ot_trunctate = 7
+        self.ot_reach = 1.0
         self.uniform_reference = False
         self.reference_n = 300000
 
@@ -527,36 +527,6 @@ class Renderer(OrbitDragCameraWindow):
         window_flags = imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_TITLE_BAR
         imgui.begin("Cfg", True, window_flags)
 
-        if hasattr(self, "files") and False:
-            if imgui.tree_node("Files", imgui.TREE_NODE_DEFAULT_OPEN):
-
-                #for i, file in enumerate(self.files):
-                for i in range(len(self.files)):
-                    file = self.files[self.idx_lut[i]]
-                    pressed, state = imgui.selectable(file.split("/")[-1])
-                    
-                    if imgui.is_item_active() and not imgui.is_item_hovered():
-                        next = i + (-1 if imgui.get_mouse_drag_delta(0)[1] < 0 else 1)
-                        if next >= 0 and next < len(self.files):
-                            #self.files[i], self.files[next] = self.files[next], self.files[i]
-                            self.idx_lut[i], self.idx_lut[next] = self.idx_lut[next], self.idx_lut[i]
-                            imgui.reset_mouse_drag_delta()
-
-                    # swap on release
-                    if self.loaded and imgui.is_item_deactivated_after_edit():
-                        self.idx_lut = np.argsort(self.ens.emd_matrix[self.idx_lut[0], :]).ravel()
-                        self.ens.idx_lut = self.idx_lut
-                        if self.uniform_reference:
-                            # todo broken 
-                            np.delete(self.idx_lut, np.argwhere([self.idx_lut == 0]).ravel())
-                            self.idx_lut -= 1
-                        self.swap()
-
-                if self.loaded:
-                    imgui.text(f"{self.ens.emd_matrix[self.idx_lut[0], :][self.idx_lut]}")
-
-                imgui.tree_pop()
-
         width, height = imgui.get_window_size()
 
         if hasattr(self, "files"):
@@ -779,7 +749,6 @@ class Renderer(OrbitDragCameraWindow):
 
     def generic_run(self, filelist):
         self.number_of_files = len(filelist['files']) + (1 if self.uniform_reference else 0)
-        self.idx_lut = np.arange(self.number_of_files)
 
         conf = {
             "octree_node_size": self.octree_node_size,
@@ -821,6 +790,7 @@ class Renderer(OrbitDragCameraWindow):
 
         self.num_points = self.ens.get_num_points()
         self.loaded = True
+        self.idx_lut = self.ens.idx_lut
 
     def swap(self):
         source_pos, target_pos = self.ens.compute_data

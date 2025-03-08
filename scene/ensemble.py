@@ -17,7 +17,7 @@ class Ensemble:
 
         self.idx = 0
         self.idx_lut = None
-        self._selected_attribute = 2
+        self._selected_attribute = 0
 
         # legacy
         self.num_points = []
