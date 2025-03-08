@@ -106,7 +106,7 @@ class Ensemble:
         self.emd_matrix = emd_matrix
 
         # variance 
-        self.variance = np.var(np.dstack(self.correspondences), axis=(1, 2))
+        self.variance = np.sum(np.var(np.dstack(self.correspondences), axis=(2)), axis=1)
         self.variance = self.variance / np.max(self.variance) if np.max(self.variance) > 0 else np.zeros(self.variance.shape[0])
 
         # total 
