@@ -11,6 +11,7 @@ import argparse
 import logging
 import pathlib
 import json
+import time
 
 log = logging.getLogger(__name__)
 
@@ -781,6 +782,10 @@ def otot(octrees):
 
 
 def ot_with_reference(reference_oct, octrees, conf, sort = True):
+
+    # only for results 
+    processing_times = np.empty(len(octrees))
+
     # allow to allocate additional memory
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     
@@ -790,15 +795,25 @@ def ot_with_reference(reference_oct, octrees, conf, sort = True):
     colors_list = []
     emd_list = []
     for i in range(len(octrees)): 
+
+        start_time = time.time()
+
         correspondence, colors_matching, emd = ot.ot_octree_autodiff(reference_oct, octrees[i], conf) 
         correspondences_list.append(numpy(correspondence))
         colors_list.append(numpy(colors_matching))
         emd_list.append(emd)
+
+        # only for timing results
+        end_time = time.time()
+        delta_time = end_time - start_time
+        processing_times[i] = delta_time
+
     # sort the lists based on the emd
     sorting = np.argsort(emd_list)
     correspondences_list = [correspondences_list[i] for i in sorting]
     colors_list = [colors_list[i] for i in sorting]
-    return correspondences_list, colors_list
+    
+    return correspondences_list, colors_list, processing_times
 
 if __name__ == "__main__":
     main()

@@ -15,6 +15,12 @@ import subprocess
 import json 
 import os
 import pathlib
+# for evaluation 
+import time
+import csv
+import pandas as pd
+import matplotlib.pyplot as plt
+
 
 from scene.ensemble import Ensemble
 
@@ -189,7 +195,7 @@ class Renderer(OrbitDragCameraWindow):
         self.ot_blur = 0.001
         self.ot_scaling = 0.7
         self.ot_trunctate = 7
-        self.ot_reach = 1.0
+        self.ot_reach = 2.0
         self.uniform_reference = False
         self.reference_n = 300000
 
@@ -503,7 +509,8 @@ class Renderer(OrbitDragCameraWindow):
                 
                 add_files, _ = imgui.menu_item("Load Files")
                 if add_files:
-                    self.files = list(askopenfilenames(filetypes = [('', '*e57'), ('', '*ply'), ('', '*.obj'), ('', '*.laz')]))
+                    self.files = list(askopenfilenames(filetypes = [('', '*e57'), ('', '*ply'), ('', '*.obj'), ('', '*.laz')],
+                                                       initialdir=str(self.resource_dir / "data")))
                     self.idx_lut = np.arange(len(self.files))
 
                 load_debug, _ = imgui.menu_item("Load DEBUG")
@@ -732,9 +739,9 @@ class Renderer(OrbitDragCameraWindow):
 
     def run_debug(self):
         filelist = {"files": [
-                                pathlib.Path(__file__).parents[3] / "data/loewe/lion3.ply",
-                                pathlib.Path(__file__).parents[3] / "data/loewe/lion2.ply",
-                                pathlib.Path(__file__).parents[3] / "data/loewe/lion1.ply"
+                                pathlib.Path(__file__).parents[3] / "data/loewe/old/lion3.ply",
+                                pathlib.Path(__file__).parents[3] / "data/loewe/old/lion2.ply",
+                                pathlib.Path(__file__).parents[3] / "data/loewe/old/lion1.ply"
                              ]         
                     }
         self.files = [str(file.resolve()) for file in filelist["files"]]
@@ -761,8 +768,19 @@ class Renderer(OrbitDragCameraWindow):
         }
 
         self.ens = Ensemble(filelist, conf)
+
+        #
+        start_time_pre_processing = time.time()
+        #
+
         self.ens.build()
-        #self.ens.ot_sequential()
+
+        #
+        end_time = time.time()
+        delta_pre_processing = end_time - start_time_pre_processing
+        start_time_ot = time.time()
+        #
+
         conf = {
             "blur" : self.ot_blur,
             "scaling" : self.ot_scaling,
@@ -770,6 +788,15 @@ class Renderer(OrbitDragCameraWindow):
             "reach": self.ot_reach
         } 
         self.ens.ot_reference(conf)
+
+        #
+        end_time = time.time()
+        delta_ot = end_time - start_time_ot
+        print(f"Elapsed time Pre-Processing, and OT: {delta_pre_processing:.4f}, {delta_ot:.4f}")
+        delta_total = delta_ot + delta_pre_processing
+        print(f"Elapsed time Pre-Processing and Sinkhorn: {delta_total:.4f} seconds")
+        #
+
         source_pos, target_pos = self.ens.compute_data
 
         # Create the two buffers the compute shader will write and read from
@@ -825,5 +852,221 @@ def easeInOutCubic(x):
     return 4 * x * x * x if x < 0.5 else 1 - pow(-2 * x + 2, 3) / 2
     
 
+class Evaluation:
+
+    profile1 = {
+        "outputfile": "evaluation_al.csv",
+        "directory": pathlib.Path(__file__).parents[3] / "data/skull/al/",
+
+        "octree_node_size": 500,
+        "normalize_data": True,
+        "autograd": True,
+        "sort_emd": False,
+        "uniform_reference": False,
+        "reference_n": 0,
+
+        "blur" : 0.001,
+        "scaling" : 0.7,
+        "truncate" : 4,
+        "reach": 2
+    }
+
+    def __init__(self):
+        self.profile = self.profile1 
+        #self.create_filelist()
+        infile_pth = str((Path.home() / "Dev" / self.profile["outputfile"]).resolve())
+        #csv_to_latex_document(infile_pth, infile_pth.replace(".csv", ".tex"), caption="CSV Table", label="tab:csv_table")
+        csv_to_heatmap(infile_pth, infile_pth.replace(".csv", ".png"))
+
+    def create_filelist(self):
+        folders = list_subfolders(self.profile["directory"])
+        for folder in folders:
+            files = list_filepaths(folder)
+
+            for i in range(2, len(files)):
+                current_files = files[:i]
+                filelist = {"files": current_files}
+                self.run_shape_shift(filelist)
+    
+    def run_shape_shift(self, filelist):
+        number_of_files = len(filelist['files']) + (1 if self.profile['uniform_reference'] else 0)
+
+        conf = {
+            "octree_node_size": self.profile["octree_node_size"],
+            "normalize_data": self.profile["normalize_data"],
+            "autograd": self.profile["autograd"],
+            "sort_emd": self.profile["sort_emd"],  
+            "uniform_reference": False,
+            "reference_n": 0,
+            #"accumulate_distance": self.accumulate_distance
+        }
+
+        ens = Ensemble(filelist, conf)
+
+        #
+        start_time_pre_processing = time.time()
+        #
+
+        ens.build()
+
+        #
+        end_time = time.time()
+        delta_pre_processing = end_time - start_time_pre_processing
+        start_time_ot = time.time()
+        #
+
+        conf = {
+            "blur" : self.profile["blur"],
+            "scaling" : self.profile["scaling"],
+            "truncate" : self.profile["truncate"],
+            "reach": self.profile["reach"]
+        } 
+        ens.ot_reference(conf)
+
+        #
+        processing_times = ens.processing_times
+        print(f"min, max, mean time: {np.round(np.min(processing_times), 4)}, {np.round(np.max(processing_times), 4)}, {np.round(np.mean(processing_times), 4)}")
+    
+        end_time = time.time()
+        delta_ot = end_time - start_time_ot
+        print(f"Elapsed time Pre-Processing, and OT: {delta_pre_processing:.4f}, {delta_ot:.4f}")
+        delta_total = delta_ot + delta_pre_processing
+        print(f"Elapsed time Pre-Processing and Sinkhorn: {delta_total:.4f} seconds")
+        #
+
+        outfile_pth = Path.home() / "Dev" / self.profile["outputfile"]
+        file_exists = outfile_pth.is_file()
+
+        with open(outfile_pth, 'a', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            if not file_exists:
+                header = ["Members", "Size", "Pre", "OT", "Min", "Max", "Mean"]
+                writer.writerow(header)
+            row = [number_of_files, int(np.mean(ens.get_num_points())), np.round(delta_pre_processing, 3), np.round(delta_ot, 3), np.round(np.min(processing_times), 3), np.round(np.max(processing_times), 3), np.round(np.mean(processing_times), 3)]
+            writer.writerow(row)
+        
+def list_filepaths(directory):
+    return [os.path.join(directory, f) for f in os.listdir(directory)
+            if os.path.isfile(os.path.join(directory, f))]
+
+def list_subfolders(directory):
+    return [os.path.join(directory, name) for name in os.listdir(directory)
+            if os.path.isdir(os.path.join(directory, name))]
+
+def csv_to_latex_document(csv_path, output_tex_path, caption="CSV Table", label="tab:csv_table"):
+
+    df = pd.read_csv(csv_path)
+
+    # Escape LaTeX special characters in column headers
+    df.columns = df.columns.map(lambda x: str(x).replace('_', r'\_'))
+
+    # Convert to LaTeX table string (booktabs for prettier lines, index=False to skip row index)
+    table_latex = df.to_latex(index=False, escape=True, column_format='|'+ 'r|'*len(df.columns), header=True)
+
+    # Wrap in full LaTeX document
+    document = rf"""
+    \documentclass{{article}}
+    \usepackage[margin=1in]{{geometry}}
+    \usepackage{{booktabs}}
+    \usepackage{{caption}}
+
+    \begin{{document}}
+
+    \begin{{table}}[h!]
+    \centering
+    {table_latex}
+    \caption{{{caption}}}
+    \label{{{label}}}
+    \end{{table}}
+
+    \end{{document}}
+    """
+
+    # Save to .tex file
+    with open(output_tex_path, 'w') as f:
+        f.write(document)
+
+    print(f"LaTeX document saved to: {output_tex_path}")
+
+def csv_to_heatmap(csv_path, output_png_path):
+    # Load the CSV
+    df = pd.read_csv(csv_path)
+
+    # Define bin width
+    bin_width = 200000
+    min_size = df['Size'].min()
+    max_size = df['Size'].max()
+    bins = np.arange(min_size, max_size + bin_width, bin_width)
+
+    # Assign Size bins
+    df['SizeBin'] = pd.cut(df['Size'], bins=bins, include_lowest=True)
+
+    # Map bins to mean Size
+    mean_labels = {
+        b: int(df[df['SizeBin'] == b]['Size'].mean())
+        for b in df['SizeBin'].unique()
+    }
+    df['SizeMean'] = df['SizeBin'].map(mean_labels)
+
+    # Melt to long format
+    df_long = pd.melt(df, id_vars=['Members', 'SizeMean'], value_vars=['Pre', 'OT'],
+                    var_name='Metric', value_name='Value')
+
+    # Create column label: e.g., "500000 - Pre"
+    df_long['Column'] = df_long['SizeMean'].astype(str) + ' - ' + df_long['Metric']
+
+    # Pivot to wide format
+    heatmap_data = df_long.pivot_table(index='Members', columns='Column', values='Value')
+
+    # --- Sort columns by Size first, then Metric ---
+    # Extract size and metric from column labels
+    col_split = heatmap_data.columns.str.extract(r"(\d+)\s*-\s*(Pre|OT)")
+    col_split.columns = ['Size', 'Metric']
+    col_split['Size'] = col_split['Size'].astype(int)
+    col_split['MetricOrder'] = col_split['Metric'].map({'Pre': 0, 'OT': 1})
+
+    # Sort columns by Size, then Metric
+    sorted_columns = heatmap_data.columns[np.lexsort((col_split['MetricOrder'], col_split['Size']))]
+    heatmap_data = heatmap_data[sorted_columns]
+
+    # --- Plot ---
+    fig, ax = plt.subplots(figsize=(6, 6))
+    im = ax.imshow(heatmap_data, cmap='magma', aspect='auto')
+
+    # Axis labels
+    ax.set_xticks(np.arange(len(heatmap_data.columns)))
+    ax.set_yticks(np.arange(len(heatmap_data.index)))
+    ax.set_xticklabels(heatmap_data.columns, rotation=45, ha="right")
+    ax.set_yticklabels(heatmap_data.index)
+
+    # Add values in cells
+    for i in range(len(heatmap_data.index)):
+        for j in range(len(heatmap_data.columns)):
+            val = heatmap_data.iloc[i, j]
+            if not pd.isna(val):
+                #ax.text(j, i, f"{val:.2f}", ha="center", va="center", color="white")
+                # simply for the color
+                rgb = plt.cm.magma(val/heatmap_data.max().max())
+                
+                # Convert the background color to a brightness value and choose white/black for text color
+                brightness = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2])
+                text_color = "white" if brightness < 0.66 else "black"
+                
+                # Add the annotation with the selected text color
+                ax.text(j, i, f"{val:.2f}", ha="center", va="center", color=text_color)
+
+
+    # Titles
+    #ax.set_title("Pre and OT per Size Bin and Member Count")
+    #ax.set_xlabel("Size Bin and Metric")
+    ax.set_ylabel("Ensemble Members")
+
+    plt.tight_layout()
+
+    # Save to file
+    plt.savefig(output_png_path, dpi=300)
+
+
 if __name__ == '__main__':
-    Renderer.run()
+    #Renderer.run()
+    Evaluation()

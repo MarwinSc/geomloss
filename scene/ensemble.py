@@ -75,7 +75,7 @@ class Ensemble:
         idx = 0
         print(f"Reference model: {self.models[idx].file}")
         octrees = [model.octree for i, model in enumerate(self.models) if i != idx]
-        self.correspondences, self.matching_colors = ot_with_reference(self.models[idx].octree, octrees, conf, sort=self.conf["sort_emd"])
+        self.correspondences, self.matching_colors, self.processing_times = ot_with_reference(self.models[idx].octree, octrees, conf, sort=self.conf["sort_emd"])
         # reorder models
         self.models = [self.models[idx]] + [model for i, model in enumerate(self.models) if i != idx]
         # insert reference model to correspondences
