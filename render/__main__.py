@@ -708,13 +708,14 @@ class Renderer(OrbitDragCameraWindow):
                             print(f'Received: {aidx}')
 
                             self.idx_lut[i], self.idx_lut[aidx] = self.idx_lut[aidx], self.idx_lut[i]
-                            self.idx_lut = np.argsort(self.ens.emd_matrix[self.idx_lut[0], :]).ravel()
-                            self.ens.idx_lut = self.idx_lut
-                            if self.uniform_reference:
-                                # todo broken 
-                                np.delete(self.idx_lut, np.argwhere([self.idx_lut == 0]).ravel())
-                                self.idx_lut -= 1
-                            self.swap()
+                            if self.loaded: # always resort based on emd, effectively only the reference can be swapped
+                                self.idx_lut = np.argsort(self.ens.emd_matrix[self.idx_lut[0], :]).ravel()
+                                self.ens.idx_lut = self.idx_lut
+                            #if self.uniform_reference:
+                            #    # todo broken 
+                            #    np.delete(self.idx_lut, np.argwhere([self.idx_lut == 0]).ravel())
+                            #    self.idx_lut -= 1
+                                self.swap()
 
         width, height = imgui.get_window_size()
         imgui.set_next_item_width(slider_width)
@@ -768,6 +769,7 @@ class Renderer(OrbitDragCameraWindow):
         }
 
         self.ens = Ensemble(filelist, conf)
+        self.ens.idx_lut = self.idx_lut
 
         #
         start_time_pre_processing = time.time()
@@ -790,6 +792,8 @@ class Renderer(OrbitDragCameraWindow):
         self.ens.ot_reference(conf)
 
         #
+        processing_times = self.ens.processing_times
+        print(f"min, max, mean time: {np.round(np.min(processing_times), 4)}, {np.round(np.max(processing_times), 4)}, {np.round(np.mean(processing_times), 4)}")
         end_time = time.time()
         delta_ot = end_time - start_time_ot
         print(f"Elapsed time Pre-Processing, and OT: {delta_pre_processing:.4f}, {delta_ot:.4f}")
@@ -902,6 +906,7 @@ class Evaluation:
         }
 
         ens = Ensemble(filelist, conf)
+        self.ens.idx_lut = np.arange(number_of_files)
 
         #
         start_time_pre_processing = time.time()
@@ -1068,5 +1073,5 @@ def csv_to_heatmap(csv_path, output_png_path):
 
 
 if __name__ == '__main__':
-    #Renderer.run()
-    Evaluation()
+    Renderer.run()
+    #Evaluation()

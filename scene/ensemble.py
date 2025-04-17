@@ -1,4 +1,4 @@
-
+import pathlib
 import numpy as np
 
 from scene.model import Model, Uniform_reference_model
@@ -66,24 +66,22 @@ class Ensemble:
             self.models.insert(0, model)
             self.num_points.insert(0, n)
         
-        self.idx_lut = np.arange(len(self.models))
+        #self.idx_lut = np.arange(len(self.models))
 
     def ot_reference(self, conf):
         """
         Calls OT with the first file as reference.
         """
-        idx = 0
+        idx = self.idx_lut[0]
         print(f"Reference model: {self.models[idx].file}")
         octrees = [model.octree for i, model in enumerate(self.models) if i != idx]
         self.correspondences, self.matching_colors, self.processing_times = ot_with_reference(self.models[idx].octree, octrees, conf, sort=self.conf["sort_emd"])
-        # reorder models
-        self.models = [self.models[idx]] + [model for i, model in enumerate(self.models) if i != idx]
         # insert reference model to correspondences
-        self.correspondences = [self.models[0].octree.points_np] + self.correspondences
-        self.matching_colors = [self.models[0].octree.colors] + self.matching_colors
+        self.correspondences.insert(idx, self.models[idx].octree.points_np)
+        self.matching_colors.insert(idx, self.models[idx].octree.colors)
 
         self.post_ot_reference()
-        self.idx_lut = np.argsort(self.emd_matrix[0, :])
+        self.idx_lut = np.argsort(self.emd_matrix[self.frechet_mean, :])
 
     def post_ot_reference(self):
         """
@@ -96,12 +94,25 @@ class Ensemble:
         # emd matrix
 
         emd_matrix = np.zeros((len(self.models), len(self.models)))
+        # save the index of the mean model 
+        self.frechet_mean = 0
+        min_dist = np.inf
 
         # iterate over correspondences
         for i, corres in enumerate(self.correspondences):
             # TODO make efficient don'T compute all cells 
             distances = [np.mean(np.linalg.norm(corres - self.correspondences[ii], axis=1)) for ii in range(len(self.correspondences))] 
             emd_matrix[i , :] = np.r_[distances]
+
+            distance_sum = np.sum(distances)
+            print(f"Distance sum for {pathlib.Path(self.models[i].file).stem}: {distance_sum}")
+            if distance_sum < min_dist:
+                min_dist = distance_sum
+                self.frechet_mean = i
+        
+        print(f"Frechet mean: {self.models[self.frechet_mean].file} with distance {min_dist}")
+        emd_mat_for_printing = np.array2string(emd_matrix, formatter={'float_kind': lambda x: "%.3f" % x})
+        print(f"EMD matrix: \n {emd_mat_for_printing}")
 
         self.emd_matrix = emd_matrix
 

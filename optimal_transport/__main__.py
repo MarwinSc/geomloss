@@ -809,9 +809,9 @@ def ot_with_reference(reference_oct, octrees, conf, sort = True):
         processing_times[i] = delta_time
 
     # sort the lists based on the emd
-    sorting = np.argsort(emd_list)
-    correspondences_list = [correspondences_list[i] for i in sorting]
-    colors_list = [colors_list[i] for i in sorting]
+    #sorting = np.argsort(emd_list)
+    #correspondences_list = [correspondences_list[i] for i in sorting]
+    #colors_list = [colors_list[i] for i in sorting]
     
     return correspondences_list, colors_list, processing_times
 
