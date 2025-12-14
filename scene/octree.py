@@ -277,7 +277,7 @@ class Knot(Node):
     
     def to_list(self):
 
-        # bottom up write the leafs first
+        # bottom up write the leaves first
         for child in self.children:
             child.to_list()
 
@@ -290,7 +290,7 @@ class Knot(Node):
         point_range_from = []
         point_range_to = []
         for i, child in enumerate(self.children):
-            # thus empty leafs have index 0 in the hierarchy
+            # thus empty leaves have index 0 in the hierarchy
             if len(child) > 0:
                 point_range_from.append(child.point_ref)
                 point_range_to.append(child.point_ref + len(child))

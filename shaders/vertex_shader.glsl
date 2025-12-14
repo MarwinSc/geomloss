@@ -7,6 +7,7 @@ in vec4 in_color; // w is the target distance
 uniform mat4 projection;
 uniform mat4 modelview;
 uniform float point_size;
+uniform float point_size_cap;
 //uniform float time;
 uniform bool varying_size;
 uniform float color_state;
@@ -86,7 +87,7 @@ void main() {
 
     // Set the point size
     if (varying_size) {
-        gl_PointSize = min((1/gl_Position.z) * point_size, 10.0);
+        gl_PointSize = min((1/gl_Position.z) * point_size, point_size_cap);
     } else {
         gl_PointSize = point_size;
     }

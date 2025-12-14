@@ -30,7 +30,7 @@ void main() {
             //if (!(abs(i) <= size - abs(j))) { continue; }
 
             // For a circular shape.
-            //if (!(distance(vec2(j, i), vec2(0, 0)) <= size)) { continue; }
+            if (!(distance(vec2(j, i), vec2(0, 0)) <= size)) { continue; }
 
             vec2 offset = vec2(i * offset_h, j * offset_v);
             vec4 c = texture(edgeTexture, TexCoords.st + offset);

@@ -48,7 +48,7 @@ def OT_registration(source, target, nits=1):
     #Loss = SamplesLoss("sinkhorn", p=2, blur=0.02, scaling=0.4, truncate=1, backend="multiscale", diameter=1.0, cluster_scale=0.01)
     #Loss = SamplesLoss("sinkhorn", p=2, blur=0.02, scaling=0.4, truncate=1, backend="online")
 
-    Loss = SamplesLoss("sinkhorn", p=2, blur=0.003, scaling=0.7, truncate=0.1, backend="multiscale", verbose=True)
+    Loss = SamplesLoss("sinkhorn", p=2, blur=0.0005, scaling=0.7, truncate=7, backend="multiscale", verbose=True)
 
     for it in range(nits):
         wasserstein_zy = Loss(a, z, b, y)
@@ -408,6 +408,8 @@ def ot_octree_autodiff(source, target, conf):
         torch.cuda.synchronize()
     start = time.time()
 
+    # geomloss example code does all of the following in a loop
+
     Loss = Samplesloss_octree("sinkhorn", p=2, blur=conf["blur"], reach=conf["reach"], scaling=conf["scaling"], truncate=conf["truncate"], backend="multiscale", potentials=False)#, reach=1)
 
     emd = Loss(source, target)
@@ -433,6 +435,9 @@ def ot_octree_autodiff(source, target, conf):
         color = torch.tensor(target.colors[i], dtype=torch.float32, device='cuda')
         end = time.time()   
         print("KD color query in {:.3f}s.".format(end - start))
+    else:
+        color = torch.tensor(source.colors, dtype=torch.float32, device='cuda')
+
 
     return points, color, emd.detach().cpu().numpy()
 

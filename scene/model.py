@@ -25,7 +25,7 @@ class Model:
 
         if norm_params is not None:
             min_coords, max_coords, midpoint = norm_params
-        else:
+        else: # if normalize_data is True:
             # Step 1: Compute the bounding box
             min_coords = points.min(axis=0)
             max_coords = points.max(axis=0)
@@ -40,6 +40,49 @@ class Model:
     
         return min_coords, max_coords, midpoint
     
+class Evaluation_model:
+
+    def __init__(self, file, conf):
+        
+        self.file = file
+        self.conf = conf
+        self.num_points = None
+        self.octree = None
+        self.kdtree = None
+
+    def build(self, norm_params=None, num_samples=None):
+        
+        points, colors = file_import.read(self.file)
+
+        # swap columns due to blender
+        points[:,[1, 2]] = points[:,[2, 1]]
+
+        # subsample points
+        if num_samples is not None and num_samples < points.shape[0]:
+            rng = np.random.default_rng(seed=42)
+            indices = rng.choice(points.shape[0], num_samples, replace=False)
+            points = points[indices]
+            colors = colors[indices]
+
+        self.num_points = points.shape[0]
+
+        if norm_params is not None:
+            min_coords, max_coords, midpoint = norm_params
+        else:
+            # Step 1: Compute the bounding box
+            min_coords = points.min(axis=0)
+            max_coords = points.max(axis=0)
+            # Step 2: Translate points to center at origin
+            midpoint = (min_coords + max_coords) / 2
+        points = points - midpoint
+        # Step 3: Normalize to range [0, 1]
+        scale = max(max_coords - min_coords)
+        points = points / scale
+
+        self.octree = Octree(points, self.conf["octree_node_size"], colors=colors, autograd=self.conf["autograd"])
+    
+        return min_coords, max_coords, midpoint
+
 class Uniform_reference_model:
 
     def __init__(self, n, conf):

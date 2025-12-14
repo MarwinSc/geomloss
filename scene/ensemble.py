@@ -1,8 +1,8 @@
 import pathlib
 import numpy as np
 
-from scene.model import Model, Uniform_reference_model
-from optimal_transport.__main__ import otot, ot_with_reference
+from scene.model import Model, Uniform_reference_model, Evaluation_model
+from optimal_transport.__main__ import otot, ot_with_reference, ot_with_reference_naive_direct_evaluation
 
 class Ensemble:
 
@@ -44,6 +44,9 @@ class Ensemble:
         The number of points for each model is needed to exeute the compute shader.
         """
         return [model.num_points for model in self.models]
+    
+    def get_octree_depth(self):
+        return [len(model.octree.node_count) for model in self.models]
 
     def build(self):
         """
@@ -68,6 +71,20 @@ class Ensemble:
         
         #self.idx_lut = np.arange(len(self.models))
 
+    def build_evaluation(self, sample_size):
+        """
+        Create a model for each file in the filelist.
+        """
+        # mean is used to normalize all point clouds to the same origin and scale
+        norm_params = None
+        for file in self.filelist['files']:
+            model = Evaluation_model(file, self.conf)
+            norm_params = model.build(norm_params, sample_size)
+            if self.conf["normalize_data"]:
+                norm_params = None
+            self.models.append(model)
+            self.num_points.append(model.num_points)
+
     def ot_reference(self, conf):
         """
         Calls OT with the first file as reference.
@@ -81,7 +98,10 @@ class Ensemble:
         self.matching_colors.insert(idx, self.models[idx].octree.colors)
 
         self.post_ot_reference()
-        self.idx_lut = np.argsort(self.emd_matrix[self.frechet_mean, :])
+
+        # todo better way
+        if self.conf["sort_emd"]:
+            self.idx_lut = np.argsort(self.emd_matrix[self.frechet_mean, :])
 
     def post_ot_reference(self):
         """
@@ -144,7 +164,11 @@ class Ensemble:
                 compute_data[1::2,:] = np.c_[colors, np.zeros(colors.shape[0])]
             else:
                 assignment_distances = np.linalg.norm(positions - pos_other, axis=1)
-                max_distance = np.max(assignment_distances)
+                #max_distance = np.max(assignment_distances)
+                # use the 99 percentile to avoid some outliers
+                max_distance = np.percentile(assignment_distances, 99)
+                assignment_distances[assignment_distances > max_distance] = max_distance
+
                 assignment_distances = assignment_distances / max_distance if max_distance > 0 else np.zeros(assignment_distances.shape[0])
                 compute_data[1::2,:] = np.c_[colors, assignment_distances]
             return compute_data
@@ -221,6 +245,20 @@ class Ensemble:
         assignment = assignment.astype("f4")
 
         return compute_data, assignment
+    
+    def naive_ot_for_evaluation(self, conf):
+        """
+        Naive OT for evaluation.
+        """
+        idx = self.idx_lut[0]
+        print(f"Reference model: {self.models[idx].file}")
+        octrees = [model.octree for i, model in enumerate(self.models) if i != idx]
+        self.correspondences, self.matching_colors, self.processing_times = ot_with_reference_naive_direct_evaluation(self.models[idx].octree, octrees, conf, sort=self.conf["sort_emd"])
+        # insert reference model to correspondences
+        self.correspondences.insert(idx, self.models[idx].octree.points_np)
+        self.matching_colors.insert(idx, self.models[idx].octree.colors)
+
+
 
     @property
     def compute_data(self):

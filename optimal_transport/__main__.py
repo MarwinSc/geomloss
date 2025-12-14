@@ -815,6 +815,45 @@ def ot_with_reference(reference_oct, octrees, conf, sort = True):
     
     return correspondences_list, colors_list, processing_times
 
+
+def ot_with_reference_naive_direct_evaluation(reference_oct, octrees, conf, sort = True):
+
+    # only for results 
+    processing_times = np.empty(len(octrees))
+
+    # allow to allocate additional memory
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    
+    numpy = lambda x: x.detach().cpu().numpy()
+
+    correspondences_list = []
+    colors_list = []
+    emd_list = []
+    for i in range(len(octrees)): 
+
+        start_time = time.time()
+
+        # tuples (weights, locations)
+        hierarchy, bounds, metadata, points, colors, weights = reference_oct.to_list()
+        source = (weights, points)
+        hierarchy, bounds, metadata, points, colors, weights = octrees[i].to_list()
+        target = (weights, points)
+        correspondence = ot.OT_registration(source, target) 
+        correspondences_list.append(numpy(correspondence))
+
+        # only for timing results
+        end_time = time.time()
+        delta_time = end_time - start_time
+        processing_times[i] = delta_time
+
+    # sort the lists based on the emd
+    #sorting = np.argsort(emd_list)
+    #correspondences_list = [correspondences_list[i] for i in sorting]
+    #colors_list = [colors_list[i] for i in sorting]
+    
+    return correspondences_list, colors_list, processing_times
+
+
 if __name__ == "__main__":
     main()
 
