@@ -17,6 +17,7 @@ import json
 import sys
 import time
 from scene.file_import import change_colors_for_evaluation
+from PIL import Image
 
 
 import render.evaluation as eval
@@ -367,7 +368,8 @@ class Renderer(OrbitDragCameraWindow):
             #self.compute_buffer_a, self.compute_buffer_b = self.compute_buffer_b, self.compute_buffer_a
             #self.points_a, self.points_b = self.points_b, self.points_a
 
-        self.render_ui()
+        if not hasattr(self, "debugging_flag_no_gui"):
+            self.render_ui()
 
         #print(f"angle_x: {self.camera.angle_x}, angle_y: {self.camera.angle_y}, radius: {self.camera.radius}")
 
@@ -561,26 +563,27 @@ class Renderer(OrbitDragCameraWindow):
                         if camera_orientation_menu.opened:
                             side, _ = imgui.menu_item("Side")
                             if side:
-                                self.camera.angle_x = 270
-                                self.camera.angle_y = 87
-                                self.camera.radius = 1.5
+                                self.debug_change_camera("side")
 
                             front, _ = imgui.menu_item("Front")
                             if front:
-                                self.camera.angle_x = 180
-                                self.camera.angle_y = 87
-                                self.camera.radius = 1.5
+                                self.debug_change_camera("front")
+
+                            top, _ = imgui.menu_item("Top")
+                            if top:
+                                self.debug_change_camera("top")
                                 
                             default, _ = imgui.menu_item("Default")
                             if default:
-                                self.camera.angle_x = 206
-                                self.camera.angle_y = 87
-                                self.camera.radius = 1.5
+                                self.debug_change_camera("default")
 
                     distance_metrics, _ = imgui.menu_item("Hausdorff&Chamfer")
                     if distance_metrics:
                         eval.hausdorff_and_chamfer_distance_fast(self.ens.correspondences[0], self.ens.correspondences[1])
 
+                    render_all, _ = imgui.menu_item("Render all")
+                    if render_all:
+                        self.debug_render_all_comparison() 
 
             imgui.end_main_menu_bar()
 
@@ -943,6 +946,67 @@ class Renderer(OrbitDragCameraWindow):
         for i, col in enumerate(self.ens.matching_colors):
             self.ens.matching_colors[i] = evaluation_col
         self.swap()
+
+    def debug_change_camera(self, orientation="side"):
+        # radius was 1.5
+        if orientation == "side":
+            self.camera.angle_x = 270
+            self.camera.angle_y = 87
+            self.camera.radius = 1.0
+        elif orientation =="front":
+            self.camera.angle_x = 180
+            self.camera.angle_y = 87
+            self.camera.radius = 1.0
+        elif orientation == "top":
+            self.camera.angle_x = 270
+            self.camera.angle_y = 0.1
+            self.camera.radius = 1.0
+        elif orientation == "default":    
+            self.camera.angle_x = 206
+            self.camera.angle_y = 87
+            self.camera.radius = 1.0
+
+    def debug_render_all_comparison(self):
+
+        from itertools import product
+
+        self.debugging_flag_no_gui = True
+
+        width = 1920
+        height = 1080
+
+        self.resize(width, height)
+        self.ctx.viewport = (0, 0, width, height)
+        self.ctx.screen._size = (width, height)
+        self.window_size = (width, height)
+        self.wnd.size = (width, height)
+        self.wnd.swap_buffers()
+
+        def render_frame(mode, camerammode, colormode):
+            self.transition_state = 1.0
+            self.run_debug(mode)
+            self.debug_change_camera(camerammode)
+            if colormode == "truecolor":
+                pass
+            elif colormode == "rgb":
+                self.debug_cange_colors(True)
+            elif colormode == "striped":
+                self.debug_cange_colors(False)
+            self.render(0.0, 0.016)
+            frame = self.ctx.screen.read(components=4, dtype='f1')
+            frame_np = np.flipud(np.frombuffer(frame, dtype=np.uint8).reshape(self.window_size[1], self.window_size[0], 4))
+            filename = mode + "_" + camerammode + "_" + colormode + ".png"
+            Image.fromarray(frame_np).convert('RGBA').save("output/comparison/" + filename)
+
+        modes = ["ours", "bcpd", "defpyr", "cilantro"]
+        cameramodes = ["side", "front", "top", "default"]
+        colormodes = ["truecolor", "rgb", "striped"]
+
+        for combo in product(modes, cameramodes, colormodes):
+            render_frame(*combo)
+
+        exit(0)
+
 
     def run_naive(self):
 
