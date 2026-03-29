@@ -840,6 +840,7 @@ def ot_with_reference_naive_direct_evaluation(reference_oct, octrees, conf, sort
         target = (weights, points)
         correspondence = ot.OT_registration(source, target) 
         correspondences_list.append(numpy(correspondence))
+        colors_list.append(octrees[i].colors)
 
         # only for timing results
         end_time = time.time()

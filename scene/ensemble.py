@@ -144,6 +144,7 @@ class Ensemble:
         self.cummultive = np.sum(np.c_[[np.linalg.norm(self.correspondences[i] - self.correspondences[i + 1], axis=1) for i in range(len(self.correspondences) - 1)]], axis=0)
         self.cummultive = self.cummultive / np.max(self.cummultive) if np.max(self.cummultive) > 0 else np.zeros(self.cummultive.shape[0])
 
+
     def get_compute_data(self):
         """
         Get the compute data as needed for the compute shader.
@@ -250,7 +251,7 @@ class Ensemble:
         """
         Naive OT for evaluation.
         """
-        idx = self.idx_lut[0]
+        idx = 0
         print(f"Reference model: {self.models[idx].file}")
         octrees = [model.octree for i, model in enumerate(self.models) if i != idx]
         self.correspondences, self.matching_colors, self.processing_times = ot_with_reference_naive_direct_evaluation(self.models[idx].octree, octrees, conf, sort=self.conf["sort_emd"])
@@ -271,3 +272,4 @@ class Ensemble:
     @selected_attribute.setter
     def selected_attribute(self, value):
         self._selected_attribute = value
+

@@ -16,8 +16,11 @@ import subprocess
 import json 
 import sys
 import time
+from scene.file_import import change_colors_for_evaluation
 
-import render.evluation as eval
+
+import render.evaluation as eval
+from render.evaluation_cpd import run_cpd
 
 
 from scene.ensemble import Ensemble
@@ -194,7 +197,7 @@ class Renderer(OrbitDragCameraWindow):
         self.ot_blur = 0.001
         self.ot_scaling = 0.7
         self.ot_trunctate = 7
-        self.ot_reach = 2.0
+        self.ot_reach = 1.0
         self.uniform_reference = False
         self.reference_n = 300000
         self.sort_emd = True
@@ -366,6 +369,10 @@ class Renderer(OrbitDragCameraWindow):
 
         self.render_ui()
 
+        #print(f"angle_x: {self.camera.angle_x}, angle_y: {self.camera.angle_y}, radius: {self.camera.radius}")
+
+
+
     def render_depth_edges(self):
 
         offset_v = 1.0 / (self.wnd.size[1] * self.offset_factor)
@@ -499,33 +506,82 @@ class Renderer(OrbitDragCameraWindow):
             self.dilation_prog['parameters'] = np.r_[1, offset_h, offset_v]
             self.dilation_vao.render(moderngl.TRIANGLES)
 
-        self.ctx.copy_framebuffer(self.exen_edges_fbo, self.current_fbo)
-    
+        self.ctx.copy_framebuffer(self.exen_edges_fbo, self.current_fbo)        
 
     def render_ui(self):
         super().render_ui()
         imgui.new_frame()
         if imgui.begin_main_menu_bar():
-            if imgui.begin_menu("File", True):
-                
-                add_files, _ = imgui.menu_item("Load Files")
-                if add_files:
-                    self.files = list(askopenfilenames(filetypes = [('', '*e57'), ('', '*ply'), ('', '*.obj'), ('', '*.laz')],
-                                                       initialdir=str(self.resource_dir / "data" / "loewe" / "500k" / "video")))
-                    self.idx_lut = np.arange(len(self.files))
+            with imgui.begin_menu("File", True) as file_menu:
+                if file_menu.opened:
+                    add_files, _ = imgui.menu_item("Load Files")
+                    if add_files:
+                        self.files = list(askopenfilenames(filetypes = [('', '*e57'), ('', '*ply'), ('', '*.obj'), ('', '*.laz')],
+                                                        initialdir=str(self.resource_dir / "data" / "skull" / "canine" )))
+                        self.idx_lut = np.arange(len(self.files))
 
-                load_debug, _ = imgui.menu_item("Load DEBUG")
-                if load_debug:
-                    self.run_debug()
+                    run_naive, _ = imgui.menu_item("Run Naive")
+                    if run_naive:
+                        self.run_naive()
 
-                clicked_quit, selected_quit = imgui.menu_item(
-                    "Quit", 'Cmd+Q', False, True
-                )
+                    clicked_quit, selected_quit = imgui.menu_item(
+                        "Quit", 'Cmd+Q', False, True
+                    )
 
-                if clicked_quit:
-                    exit(1)
+                    if clicked_quit:
+                        exit(1)
 
-                imgui.end_menu()
+            with imgui.begin_menu("Debug", True) as debug_menu:
+                if debug_menu.opened:
+
+                    load_ours, _ = imgui.menu_item("Ours")
+                    if load_ours:
+                        self.run_debug("ours")
+                    load_bcpd, _ = imgui.menu_item("BCPD")
+                    if load_bcpd:
+                        self.run_debug("bcpd")
+                    load_defpyr, _ = imgui.menu_item("Deformation Pyramid")
+                    if load_defpyr:
+                        self.run_debug("defpyr")
+                    load_cilantro, _ = imgui.menu_item("cilantro")
+                    if load_cilantro:
+                        self.run_debug("cilantro")
+
+                    with imgui.begin_menu("Color Encoding") as color_encoding_menu:
+                        if color_encoding_menu.opened:
+                            # TODO assert that files are loaded
+                            encode_rgb, _ = imgui.menu_item("RGB")
+                            if encode_rgb:
+                                self.debug_cange_colors(mode_rgb=True)
+                            encode_striped, _ = imgui.menu_item("Striped")
+                            if encode_striped:
+                                self.debug_cange_colors(mode_rgb=False)
+
+                    with imgui.begin_menu("Camera Orientation") as camera_orientation_menu:
+                        if camera_orientation_menu.opened:
+                            side, _ = imgui.menu_item("Side")
+                            if side:
+                                self.camera.angle_x = 270
+                                self.camera.angle_y = 87
+                                self.camera.radius = 1.5
+
+                            front, _ = imgui.menu_item("Front")
+                            if front:
+                                self.camera.angle_x = 180
+                                self.camera.angle_y = 87
+                                self.camera.radius = 1.5
+                                
+                            default, _ = imgui.menu_item("Default")
+                            if default:
+                                self.camera.angle_x = 206
+                                self.camera.angle_y = 87
+                                self.camera.radius = 1.5
+
+                    distance_metrics, _ = imgui.menu_item("Hausdorff&Chamfer")
+                    if distance_metrics:
+                        eval.hausdorff_and_chamfer_distance_fast(self.ens.correspondences[0], self.ens.correspondences[1])
+
+
             imgui.end_main_menu_bar()
 
         #imgui.show_test_window()
@@ -741,19 +797,224 @@ class Renderer(OrbitDragCameraWindow):
         imgui.render()
         self.imgui.render(imgui.get_draw_data())
 
-    def run_debug(self):
-        filelist = {"files": [
-                                #pathlib.Path(__file__).parents[3] / "data/loewe/old/lion3.ply",
-                                #pathlib.Path(__file__).parents[3] / "data/loewe/old/lion2.ply",
-                                #pathlib.Path(__file__).parents[3] / "data/loewe/old/lion1.ply"
-                                pathlib.Path(__file__).parents[3] / "data/loewe/500k/lion_3.e57",
-                                pathlib.Path(__file__).parents[3] / "data/loewe/500k/lion_2.e57",
-                                pathlib.Path(__file__).parents[3] / "data/loewe/500k/lion_1.e57"
-                             ]         
-                    }
+
+    def run_debug(self, mode="ours"):
+        def from_bcpd():
+            # some algorithms don't support colors directly use this file to fetch colors from (we only really need the target)
+            self.color_file = pathlib.Path("/home/marwin/Dev/data/skull/canine/100k/bulldog.e57")
+            return {"files": [
+                                    pathlib.Path("/home/marwin/Dev/data/skull/canine/100k/bulldog_nc.txt"),
+                                    pathlib.Path("/home/marwin/Dev/bcpd/results/y.txt")
+                                ]         
+                        }
+            return filelist
+
+        def from_deformationpyramid():
+            # some algorithms don't support colors directly use this file to fetch colors from (we only really need the target)
+            self.color_file = pathlib.Path("/home/marwin/Dev/data/skull/canine/100k/bulldog.e57")
+            return {"files": [
+                                    pathlib.Path("/home/marwin/Dev/data/skull/canine/100k/bulldog.e57"),
+                                    pathlib.Path("/home/marwin/Dev/DeformationPyramid/DeformationPyramid/out/fit.ply")
+                ]
+            }
+        
+        def from_ours():
+            # some algorithms don't support colors directly use this file to fetch colors from (we only really need the target)
+            self.color_file = pathlib.Path("output/assignment_source_colors.npy")
+            return {"files": [
+                                    pathlib.Path("output/assignment_source.npy"),
+                                    pathlib.Path("output/assignment_target.npy")
+                ]
+            }
+        
+        def from_cilantro():
+            # some algorithms don't support colors directly use this file to fetch colors from (we only really need the target)
+            self.color_file = pathlib.Path("/home/marwin/Dev/data/skull/canine/100k/bulldog.e57")
+            return {"files": [
+                                    pathlib.Path("/home/marwin/Dev/data/skull/canine/100k/bulldog_normalized.ply"),
+                                    pathlib.Path("/home/marwin/Dev/cilantro/build/cilantro_output.ply")
+                ]
+            }
+        
+        # some algorithms don't support colors directly use this file to fetch colors from (we only really need the target)
+        self.color_file = pathlib.Path("/home/marwin/Dev/data/skull/canine/100k/bulldog.e57")
+
+        if mode == "ours":
+            filelist = from_ours()
+        if mode == "bcpd":
+            filelist = from_bcpd()
+        if mode == "defpyr":
+            filelist = from_deformationpyramid()
+        if mode == "cilantro":
+            filelist = from_cilantro()   
+
         self.files = [str(file.resolve()) for file in filelist["files"]]
         self.idx_lut = np.arange(len(self.files))
-        self.generic_run({"files": self.files})
+        self.debug_just_view_models()
+
+
+    def debug_just_view_models(self):
+        self.number_of_files = len(self.files) + (1 if self.uniform_reference else 0)
+
+        conf = {
+            "octree_node_size": self.octree_node_size,
+            "autograd": True,
+            "normalize_data": self.normalize_data
+        }
+        self.ens = Ensemble({"files": self.files}, conf)
+        self.ens.idx_lut = self.idx_lut
+        # proxy build
+        norm_params = None
+        for file in self.files:
+            #proxy ot
+            if(Path(file).suffix == ".npy"):
+                points = file_import.load_assignment("output/" + Path(file).stem + "_coordinates.npy")
+                colors = file_import.load_assignment("output/" + Path(file).stem + "_colors.npy")
+            elif(Path(file).suffix == ".txt"):
+                points = np.loadtxt(file)
+                colors = np.zeros((len(points),4))
+            else:
+                points, colors = file_import.read(file)
+
+            # swap columns due to blender
+            points[:,[1, 2]] = points[:,[2, 1]]
+
+            self.num_points.append(points.shape[0])
+
+            if norm_params is not None:
+                self.norm_params = norm_params
+                min_coords, max_coords, midpoint = norm_params
+            else: # if normalize_data is True:
+                # Step 1: Compute the bounding box
+                min_coords = points.min(axis=0)
+                max_coords = points.max(axis=0)
+                # Step 2: Translate points to center at origin
+                midpoint = (min_coords + max_coords) / 2
+                self.norm_params = (min_coords, max_coords, midpoint)
+            
+            if conf["normalize_data"]:
+                norm_params = None
+        
+            points = points - midpoint
+            # Step 3: Normalize to range [0, 1]
+            scale = max(max_coords - min_coords)
+            points = points / scale
+
+            self.ens.correspondences.append(points)
+            self.ens.matching_colors.append(colors)
+
+        # overwritte the colors of the target
+        if hasattr(self, "color_file"):
+            # have to be the colors after assignment 
+            if Path(self.color_file).suffix == ".npy":
+                colors = file_import.load_assignment(Path(self.color_file))
+            else:
+                _, colors = file_import.read(str(self.color_file))
+            for i in range(len(self.ens.matching_colors)):
+                self.ens.matching_colors[i] = colors
+        
+        #self.ens.post_ot_reference()
+        self.ens.emd_matrix = np.zeros((2, 2))
+        self.ens._selected_attribute = 4
+        source_pos, target_pos = self.ens.compute_data
+
+        # Create the two buffers the compute shader will write and read from
+        self.current_assignment = 0
+        #self.compute_buffer_a = self.ctx.buffer(source_pos)
+        self.compute_buffer_b = self.ctx.buffer(source_pos)
+        self.source_buffer = self.ctx.buffer(source_pos)
+        self.target_buffer = self.ctx.buffer(target_pos)
+
+        # Prepare vertex arrays to drawing points using the compute shader buffers are input
+        # We use 4x4 (padding format)
+        #self.points_a = self.ctx.vertex_array(
+        #    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
+        #)
+        self.points_b = self.ctx.vertex_array(
+            self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
+        )
+
+        #self.num_points = self.ens.get_num_points()
+        self.loaded = True
+        self.idx_lut = self.ens.idx_lut 
+
+    def debug_cange_colors(self, mode_rgb=False):
+        evaluation_col = change_colors_for_evaluation(self.ens.correspondences[0], mode_rgb=mode_rgb)
+        for i, col in enumerate(self.ens.matching_colors):
+            self.ens.matching_colors[i] = evaluation_col
+        self.swap()
+
+    def run_naive(self):
+
+        filelist = {"files": [
+                                "/home/marwin/Dev/data/skull/canine/100k/bulldog.e57",
+                                "/home/marwin/Dev/data/skull/canine/100k/domestic_dog.e57"
+                            ]         
+                    }
+        
+        self.number_of_files = len(filelist['files']) + (1 if self.uniform_reference else 0)
+        self.idx_lut = np.arange(self.number_of_files)
+
+        conf = {
+            "octree_node_size": self.octree_node_size,
+            "normalize_data": self.normalize_data,
+            "autograd": True,
+            "sort_emd": self.sort_emd,
+            "uniform_reference": self.uniform_reference,
+            "reference_n": self.reference_n,
+            #"accumulate_distance": self.accumulate_distance
+        }
+
+        self.ens = Ensemble(filelist, conf)
+        self.ens.idx_lut = self.idx_lut
+
+        #
+        start_time_pre_processing = time.time()
+        #
+
+        self.ens.build()
+
+        #
+        end_time = time.time()
+        delta_pre_processing = end_time - start_time_pre_processing
+        start_time_ot = time.time()
+        #
+
+        self.ens.naive_ot_for_evaluation(conf)
+
+        #
+        processing_times = self.ens.processing_times
+        print(f"min, max, mean time: {np.round(np.min(processing_times), 4)}, {np.round(np.max(processing_times), 4)}, {np.round(np.mean(processing_times), 4)}")
+        end_time = time.time()
+        delta_ot = end_time - start_time_ot
+        print(f"Elapsed time Pre-Processing, and OT: {delta_pre_processing:.4f}, {delta_ot:.4f}")
+        delta_total = delta_ot + delta_pre_processing
+        print(f"Elapsed time Pre-Processing and Sinkhorn: {delta_total:.4f} seconds")
+        #
+
+        self.ens.post_ot_reference()
+
+        source_pos, target_pos = self.ens.compute_data
+
+        # Create the two buffers the compute shader will write and read from
+        self.current_assignment = 0
+        #self.compute_buffer_a = self.ctx.buffer(source_pos)
+        self.compute_buffer_b = self.ctx.buffer(source_pos)
+        self.source_buffer = self.ctx.buffer(source_pos)
+        self.target_buffer = self.ctx.buffer(target_pos)
+
+        # Prepare vertex arrays to drawing points using the compute shader buffers are input
+        # We use 4x4 (padding format)
+        #self.points_a = self.ctx.vertex_array(
+        #    self.prog, [self.compute_buffer_a.bind('in_position', 'in_color', layout='4f 4f')],
+        #)
+        self.points_b = self.ctx.vertex_array(
+            self.prog, [self.compute_buffer_b.bind('in_position', 'in_color', layout='4f 4f')],
+        )
+
+        self.num_points = self.ens.get_num_points()
+        self.loaded = True
+        self.idx_lut = self.ens.idx_lut      
 
     def run_ot(self):
         filelist_path = util.create_tmp_dir() / "filelist.json"
@@ -830,6 +1091,30 @@ class Renderer(OrbitDragCameraWindow):
         self.loaded = True
         self.idx_lut = self.ens.idx_lut
 
+        # write to file
+        if True:
+            # Source
+            min_coords, max_coords, midpoint = self.ens.models[0].norm_params
+            coordinates_source = self.ens.correspondences[0]
+            scale = max(max_coords - min_coords)
+            points = coordinates_source * scale + midpoint
+            points[:,[2, 1]] = points[:,[1, 2]]
+            colors_source = source_pos[1::2,:3]
+            outpath = Path("output/assignment_source")
+            file_import.write_assignment(points, colors_source, outpath, mode="npy")
+            # Target
+            min_coords, max_coords, midpoint = self.ens.models[-1].norm_params
+            coordinates_target = self.ens.correspondences[-1]
+            scale = max(max_coords - min_coords)
+            points = coordinates_target * scale + midpoint
+            # swap columns due to blender
+            points[:,[2, 1]] = points[:,[1, 2]]
+            # write out the source colors
+            #colors_target = target_pos[1::2,:3]
+            outpath = Path("output/assignment_target")
+            file_import.write_assignment(points, colors_source, outpath, mode="npy")
+
+
     def swap(self):
         source_pos, target_pos = self.ens.compute_data
 
@@ -866,8 +1151,9 @@ def easeInOutCubic(x):
 if __name__ == '__main__': 
 
     if len(sys.argv) > 1:
-        if sys.argv[1] == "-eval":
-            eval.Evaluation().run()
+        if sys.argv[1] == "-eval": 
+            run_cpd()
+            #eval.Evaluation().run()
         elif sys.argv[1] == "-img":
             outfile = "evaluation_glacier_test.csv"
             path = str((Path.home() / "Dev" / outfile).resolve())

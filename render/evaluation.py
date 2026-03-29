@@ -1,6 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.spatial import KDTree
 
 import time
 import csv
@@ -168,8 +169,8 @@ class Evaluation:
                 print(f"Run with {self.profile['varying_parameter']} = {value}.")
 
                 conf[self.profile["varying_parameter"]] = value
-                #self.run_shape_shift(filelist, conf)
-                self.run_shape_shift_naive(filelist, conf)
+                self.run_shape_shift(filelist, conf)
+                #self.run_shape_shift_naive(filelist, conf)
 
     
     def run_shape_shift(self, filelist, conf):
@@ -656,3 +657,22 @@ def cubic_function_plot(output_png_path):
     plt.tight_layout()
     plt.savefig(output_png_path, dpi=300)
 
+
+def hausdorff_and_chamfer_distance_fast(A, B):
+    """
+    Computes the Hausdorff and the Chamfer distance between two sets of 3D points using KDTree for efficiency.
+    """
+    tree_A = KDTree(A)
+    tree_B = KDTree(B)
+
+    # Hausdorff distance
+    d_AB = max(tree_B.query(a, k=1)[0] for a in A)
+    d_BA = max(tree_A.query(b, k=1)[0] for b in B)
+    hd = max(d_AB, d_BA)
+    print(f"Hausdorff distance {hd}")
+
+    # Chamfer Distance 
+    d_AB = np.mean(tree_B.query(A, k=1)[0])
+    d_BA = np.mean(tree_A.query(B, k=1)[0])
+    cd = d_AB + d_BA
+    print(f"Chamfer Distance: {cd}")

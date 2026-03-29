@@ -24,6 +24,7 @@ class Model:
         self.num_points = points.shape[0]
 
         if norm_params is not None:
+            self.norm_params = norm_params
             min_coords, max_coords, midpoint = norm_params
         else: # if normalize_data is True:
             # Step 1: Compute the bounding box
@@ -31,6 +32,8 @@ class Model:
             max_coords = points.max(axis=0)
             # Step 2: Translate points to center at origin
             midpoint = (min_coords + max_coords) / 2
+            self.norm_params = (min_coords, max_coords, midpoint)
+    
         points = points - midpoint
         # Step 3: Normalize to range [0, 1]
         scale = max(max_coords - min_coords)
