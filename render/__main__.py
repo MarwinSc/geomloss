@@ -577,13 +577,21 @@ class Renderer(OrbitDragCameraWindow):
                             if default:
                                 self.debug_change_camera("default")
 
+                            log_camera_orientation, _ = imgui.menu_item("Log current")
+                            if log_camera_orientation:
+                                print(f"Camera orientation - angle_x: {self.camera.angle_x}, angle_y: {self.camera.angle_y}, radius: {self.camera.radius}, pos: {self.camera.position}, target: {self.camera.target}")
+
                     distance_metrics, _ = imgui.menu_item("Hausdorff&Chamfer")
                     if distance_metrics:
                         eval.hausdorff_and_chamfer_distance_fast(self.ens.correspondences[0], self.ens.correspondences[1])
-
-                    render_all, _ = imgui.menu_item("Render all")
-                    if render_all:
+ 
+                    render_comparison, _ = imgui.menu_item("Render comparison")
+                    if render_comparison:
                         self.debug_render_all_comparison() 
+
+                    render_animation, _ = imgui.menu_item("Render animation")
+                    if render_animation:
+                        self.debug_render_animation() 
 
             imgui.end_main_menu_bar()
 
@@ -947,24 +955,36 @@ class Renderer(OrbitDragCameraWindow):
             self.ens.matching_colors[i] = evaluation_col
         self.swap()
 
-    def debug_change_camera(self, orientation="side"):
+    def debug_change_camera(self, orientation="side", radius=1.0):
         # radius was 1.5
         if orientation == "side":
             self.camera.angle_x = 270
             self.camera.angle_y = 87
-            self.camera.radius = 1.0
+            self.camera.radius = radius
+            #self.camera.angle_x = 220
+            #self.camera.angle_y = 50
+            #self.camera.radius = 0.8
         elif orientation =="front":
             self.camera.angle_x = 180
             self.camera.angle_y = 87
-            self.camera.radius = 1.0
+            self.camera.radius = radius
+            #self.camera.angle_x = 128
+            #self.camera.angle_y = 60 
+            #self.camera.radius = 0.8
         elif orientation == "top":
             self.camera.angle_x = 270
             self.camera.angle_y = 0.1
-            self.camera.radius = 1.0
+            self.camera.radius = radius
+            #self.camera.angle_x = 128
+            #self.camera.radius = 0.8
         elif orientation == "default":    
             self.camera.angle_x = 206
             self.camera.angle_y = 87
-            self.camera.radius = 1.0
+            self.camera.radius = radius
+            #self.camera.angle_x = 300
+            #self.camera.angle_y = 55
+            #self.camera.radius = 1.0
+
 
     def debug_render_all_comparison(self):
 
@@ -1006,6 +1026,124 @@ class Renderer(OrbitDragCameraWindow):
             render_frame(*combo)
 
         exit(0)
+
+    def debug_render_animation(self):
+        self.debugging_flag_no_gui = True
+
+        width = 1920
+        height = 1080
+
+        self.resize(width, height)
+        self.ctx.viewport = (0, 0, width, height)
+        self.ctx.screen._size = (width, height)
+        self.window_size = (width, height)
+        self.wnd.size = (width, height)
+        self.wnd.swap_buffers()
+
+        total_frames = 40*30
+
+        camera_perspectives = ["side", "front", "default", "default"]
+        camerapan_settings = [False, False, True, False]
+
+        #camera_perspectives = ["top"]
+        #camerapan_settings = [False]
+
+        def render_animation(folder, finished_folder, camera_perspective="default", camerapan=True):
+            self.debug_change_camera(camera_perspective, 1.2)
+
+            for i in range(total_frames):
+                if camerapan:
+                    degree = 100
+                    self.camera.angle_x = 350 - degree * (i / total_frames)
+                self.transition_state = i / total_frames
+                pre_render_current_asignment = self.current_assignment
+                self.render(0.0, 0.016)
+                frame = self.ctx.screen.read(components=4, dtype='f1')
+                frame_np = np.flipud(np.frombuffer(frame, dtype=np.uint8).reshape(self.window_size[1], self.window_size[0], 4))
+                filename = "frame_" + str(i) + ".png"
+                Image.fromarray(frame_np).convert('RGBA').save(folder / filename)
+                if i == 0 or i == total_frames -1 or pre_render_current_asignment != self.current_assignment:
+                    Image.fromarray(frame_np).convert('RGBA').save(finished_folder / filename)
+
+        for iteration, setting in enumerate(zip(camera_perspectives, camerapan_settings)):
+            self.debug_change_camera(setting[0], 1.2)
+
+            parent_directory = setting[0] + ("_camerapan" if setting[1] else "")
+            parent_path = Path("output/animation/") / parent_directory
+            finished_path = Path("output/animation/") / "finished" / parent_directory
+
+            # true color
+            folder = parent_path / "truecolor"
+            folder.mkdir(parents=True, exist_ok=True)
+            finished_folder = finished_path / "truecolor"
+            finished_folder.mkdir(parents=True, exist_ok=True)
+            render_animation(folder, finished_folder, setting[0], setting[1])
+            print("1. Rendered true color animation")
+
+            # true color + contours
+            self.render_depth_contour = True
+            self.render_exen_contour = True
+            folder = parent_path / "truecolor_contour"
+            folder.mkdir(parents=True, exist_ok=True)
+            finished_folder = finished_path / "truecolor_contour"
+            finished_folder.mkdir(parents=True, exist_ok=True)
+            render_animation(folder, finished_folder, setting[0], setting[1])
+            print("2. Rendered true color + contours animation")
+
+            # explicit color
+            self.color_distance = True
+            self.render_depth_contour = False
+            self.render_exen_contour = False
+            folder = parent_path / "explicit"
+            folder.mkdir(parents=True, exist_ok=True)
+            finished_folder = finished_path / "explicit"
+            finished_folder.mkdir(parents=True, exist_ok=True)
+            render_animation(folder, finished_folder, setting[0], setting[1])
+            print("3. Rendered explicit color animation")
+
+            # explicit color + filtering
+            self.color_distance = True
+            #self.filter_range_composite = [0.0, 0.29]
+            self.filter_range_composite = [0.0, 0.66]
+            folder = parent_path / "explicit_filtering"
+            folder.mkdir(parents=True, exist_ok=True)
+            finished_folder = finished_path / "explicit_filtering"
+            finished_folder.mkdir(parents=True, exist_ok=True)
+            render_animation(folder, finished_folder, setting[0], setting[1])
+            print("4. Rendered explicit color + filtering animation")
+
+            # explicit color + contours
+            self.color_distance = True
+            self.filter_range_composite = [0.0, 0.001]
+            self.render_depth_contour = True    
+            self.render_exen_contour = True
+            folder = parent_path / "explicit_contour"
+            folder.mkdir(parents=True, exist_ok=True)
+            finished_folder = finished_path / "explicit_contour"
+            finished_folder.mkdir(parents=True, exist_ok=True)
+            render_animation(folder, finished_folder, setting[0], setting[1])
+            print("5. Rendered explicit color + contours animation")
+
+            # explicit color + contours + filtering
+            self.color_distance = True
+            #self.filter_range_composite = [0.0, 0.29]
+            self.filter_range_composite = [0.0, 0.66]
+            folder = parent_path / "explicit_contour_filtering"
+            folder.mkdir(parents=True, exist_ok=True)
+            finished_folder = finished_path / "explicit_contour_filtering"
+            finished_folder.mkdir(parents=True, exist_ok=True)
+            render_animation(folder, finished_folder, setting[0], setting[1])
+            print("6. Rendered explicit color + contours + filtering animation")
+
+            print(f"Finished iteration {iteration + 1} of {len(camera_perspectives)}")
+    
+            #reset
+            self.color_distance = False
+            self.filter_range_composite = [0.0, 0.001]
+            self.render_depth_contour = False    
+            self.render_exen_contour = False
+
+        del self.debugging_flag_no_gui
 
 
     def run_naive(self):
